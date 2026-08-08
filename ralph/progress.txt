@@ -651,3 +651,48 @@ Next: US-017 (store completed videos in Blob storage).
   tests in generation-jobs.test.ts to inject a stub storeCompletedVideo so they stay isolated
   from the real network/Blob layer.
 - Gate: tsc --noEmit, eslint ., vitest run (234/234 passing), and next build all green.
+
+Next: US-018 (video review queue - web + Telegram).
+
+[US-018] Video review queue (web + Telegram)
+- Bugfix carried in with this story: US-017's progress note above claimed the niche page's
+  Generation jobs panel showed last_error "for ANY status, not just failed" -- the actual JSX
+  condition still read `job.status === "failed" && job.lastError`, so a completed job whose
+  storage step failed rendered as a plain green "Complete" badge with the error hidden. Fixed
+  this segment: the condition is now `job.lastError ? ... : ""` with no status check, so it
+  actually matches what was previously (incorrectly) claimed done.
+- src/actions/videos.ts: added editVideoHashtags(db, videoId, hashtags, channel), mirroring
+  editVideoCaption, so the review card can save both fields from one form. Covered by two new
+  videos.test.ts cases.
+- src/app/(dashboard)/niches/[id]/videos/{page.tsx,VideoReviewCard.tsx,actions.ts} (new): a
+  pending_review queue for one niche, joined against its idea for title/prompt, EmptyState
+  when clear -- same shape as the US-012 ideas queue. VideoReviewCard shows a <video> preview
+  (poster = stored thumbnail), an inline caption/hashtags edit form, Approve/Reject buttons,
+  and a collapsible Regenerate panel with two sub-flows: edit the prompt by hand, or have
+  Claude rewrite it (reusing src/actions/prompt-optimizer.ts's optimizeIdeaPrompt) -- both then
+  call the existing regenerateVideo action (src/actions/generation-jobs.ts) to re-queue
+  generation on the same idea, leaving the old video row in place as history.
+- src/app/(dashboard)/niches/[id]/page.tsx: added a "Videos" panel (pending-review count + link
+  to the new queue), mirroring the existing Ideas panel; wired via a fifth query in the page's
+  existing Promise.all.
+- Telegram: src/lib/telegram-video-card.ts's videoCardKeyboard gained a "🔁 Regenerate" button;
+  new regeneratePickerKeyboard(videoId) offers "Edit prompt" / "Optimize prompt". webhook.ts's
+  processVideoCallback opens the picker on `regenerate`, then on `regenerateedit` /
+  `regenerateoptimize` sets a bot_sessions pending state keyed on the underlying IDEA id (not
+  the video id, since that's what editIdeaPrompt/optimizeIdeaPrompt/regenerateVideo all take)
+  and asks for a text reply. processTextMessage's two new branches
+  (handleRegenerateEditReply / handleRegenerateOptimizeReply) apply the prompt change then call
+  regenerateVideo, catching and reporting any failure (e.g. an idea missing a provider/specs)
+  instead of crashing the webhook.
+- No dedicated test files for videos/actions.ts, videos/page.tsx, or VideoReviewCard.tsx,
+  matching the existing precedent (ideas/actions.ts and IdeaReviewCard.tsx also have none) --
+  only the underlying action-layer functions get unit tests in this codebase.
+- Tests: 5 new telegram-webhook.test.ts cases (regenerate picker rendered; edit-prompt round
+  trip persists the new prompt and queues a second generation job; optimize-prompt round trip
+  drives a fake Claude client and queues a job; error path reports "Couldn't regenerate"
+  instead of crashing when the idea has no provider/specs) and 2 new telegram-video-card.test.ts
+  cases (regenerate button present on the card; picker keyboard callback_data values).
+- Gate: tsc --noEmit, eslint ., vitest run (241/241 passing, 25 files), and next build all
+  green -- new route /niches/[id]/videos compiles at 2.45 kB / 108 kB First Load JS.
+
+Next: US-019 (scheduling calendar).

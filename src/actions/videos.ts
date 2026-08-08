@@ -37,12 +37,25 @@ export async function rejectVideo(db: Database, videoId: string, channel: Channe
   return updated;
 }
 
-/** Edits the caption/hashtag copy on a generated video before it's posted. */
+/** Edits the caption copy on a generated video before it's posted. */
 export async function editVideoCaption(db: Database, videoId: string, caption: string, channel: Channel) {
   await getVideoOrThrow(db, videoId);
   const [updated] = await db
     .update(videos)
     .set({ caption, updatedVia: channel, updatedAt: new Date() })
+    .where(eq(videos.id, videoId))
+    .returning();
+  return updated;
+}
+
+/** Edits the hashtag list on a generated video before it's posted (US-018's review
+ * queue caption/hashtag editor -- kept separate from editVideoCaption so each field
+ * can be saved independently, mirroring the ideas action layer's granularity). */
+export async function editVideoHashtags(db: Database, videoId: string, hashtags: string[], channel: Channel) {
+  await getVideoOrThrow(db, videoId);
+  const [updated] = await db
+    .update(videos)
+    .set({ hashtags, updatedVia: channel, updatedAt: new Date() })
     .where(eq(videos.id, videoId))
     .returning();
   return updated;

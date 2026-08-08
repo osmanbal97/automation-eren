@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import type { Database } from "@/db/client";
 import { clearPendingSession, getPendingSession, setPendingSession } from "@/actions/bot-sessions";
-import { approveIdeaAndEnqueue } from "@/actions/generation-jobs";
+import { approveIdeaAndEnqueue, regenerateVideo } from "@/actions/generation-jobs";
 import { editIdeaCaption, editIdeaPrompt, rejectIdea, setIdeaProvider } from "@/actions/ideas";
 import { optimizeIdeaPrompt } from "@/actions/prompt-optimizer";
 import { approveVideo, editVideoCaption, rejectVideo } from "@/actions/videos";
@@ -10,7 +10,7 @@ import { createAnthropicClaudeClient, type ClaudeClient } from "@/lib/claude-cli
 import { createDrizzleErrorLogStore } from "@/lib/error-log";
 import type { TelegramClient } from "@/lib/telegram-client";
 import { formatIdeaCardText, ideaCardKeyboard, providerPickerKeyboard } from "@/lib/telegram-idea-card";
-import { getVideoById } from "@/lib/telegram-video-card";
+import { getVideoById, regeneratePickerKeyboard } from "@/lib/telegram-video-card";
 import type { GenerationSpecs } from "@/lib/video-providers/types";
 
 /** Minimal subset of Telegram's Update object this bot understands: plain-text replies
@@ -128,6 +128,16 @@ async function processTextMessage(
     return;
   }
 
+  if (session.pendingEntityType === "video_regenerate_edit" && session.pendingEntityId) {
+    await handleRegenerateEditReply(db, telegram, chatIdStr, session.pendingEntityId, text);
+    return;
+  }
+
+  if (session.pendingEntityType === "video_regenerate_optimize" && session.pendingEntityId) {
+    await handleRegenerateOptimizeReply(db, telegram, chatIdStr, session.pendingEntityId, text, deps);
+    return;
+  }
+
   if (session.pendingEntityType === "idea" && session.pendingEntityId) {
     if (session.pendingField === "prompt") {
       await editIdeaPrompt(db, session.pendingEntityId, text, "telegram");
@@ -136,6 +146,8 @@ async function processTextMessage(
     }
   } else if (session.pendingEntityType === "video" && session.pendingEntityId && session.pendingField === "caption") {
     await editVideoCaption(db, session.pendingEntityId, text, "telegram");
+  } else {
+    return;
   }
 
   await clearPendingSession(db, chatIdStr);
@@ -175,6 +187,61 @@ async function handleOptimizeNoteReply(
   await telegram.sendMessage(chatIdStr, `✨ Prompt rewritten\n\n${formatIdeaCardText(found.idea, found.provider)}`, {
     replyMarkup: ideaCardKeyboard(found.idea.id),
   });
+}
+
+/**
+ * Completes the video card's "Regenerate → Edit prompt" flow (US-018): the operator's
+ * reply becomes the idea's new prompt (via the same editIdeaPrompt action the web/idea
+ * flows use), then a fresh generation job is queued for it. The old video stays as
+ * history; the operator gets a new video card once generation finishes.
+ */
+async function handleRegenerateEditReply(
+  db: Database,
+  telegram: TelegramClient,
+  chatIdStr: string,
+  ideaId: string,
+  text: string,
+): Promise<void> {
+  await clearPendingSession(db, chatIdStr);
+  try {
+    await editIdeaPrompt(db, ideaId, text, "telegram");
+    await regenerateVideo(db, ideaId, "telegram", { errorLogStore: createDrizzleErrorLogStore(db) });
+  } catch (error) {
+    await telegram.sendMessage(chatIdStr, `Couldn't regenerate that video: ${(error as Error).message}`);
+    return;
+  }
+  await telegram.sendMessage(chatIdStr, "🔁 Regenerating with the new prompt — you'll get a fresh card when it's ready.");
+}
+
+/**
+ * Completes the video card's "Regenerate → Optimize prompt" flow (US-018): the same
+ * "-" -or-note convention as handleOptimizeNoteReply, but the rewritten prompt is
+ * immediately re-queued for generation rather than just saved for later approval.
+ */
+async function handleRegenerateOptimizeReply(
+  db: Database,
+  telegram: TelegramClient,
+  chatIdStr: string,
+  ideaId: string,
+  text: string,
+  deps: TelegramUpdateDeps,
+): Promise<void> {
+  await clearPendingSession(db, chatIdStr);
+  const note = text.trim() === "-" ? "" : text;
+  try {
+    const claudeClient = deps.claudeClient ?? createClaudeClientFromEnv();
+    await optimizeIdeaPrompt(db, ideaId, claudeClient, note, "telegram", {
+      errorLogStore: createDrizzleErrorLogStore(db),
+    });
+    await regenerateVideo(db, ideaId, "telegram", { errorLogStore: createDrizzleErrorLogStore(db) });
+  } catch (error) {
+    await telegram.sendMessage(chatIdStr, `Couldn't regenerate that video: ${(error as Error).message}`);
+    return;
+  }
+  await telegram.sendMessage(
+    chatIdStr,
+    "✨🔁 Prompt optimized, regenerating — you'll get a fresh card when it's ready.",
+  );
 }
 
 async function getIdeaWithProvider(db: Database, ideaId: string) {
@@ -309,11 +376,14 @@ async function processCallbackQuery(
 }
 
 /**
- * Handles a tap on a video card's inline buttons (US-015). Approve/Reject call the
- * same US-005 action-layer functions the web video review queue uses; the keyboard is
- * cleared via editMessageReplyMarkup rather than editMessageText, since the card may be
- * a video or photo message (editMessageText only works on plain text messages). Edit
- * Caption opens the same awaiting-text pending session used by idea cards.
+ * Handles a tap on a video card's inline buttons (US-015, extended by US-018 for
+ * Regenerate). Approve/Reject call the same US-005 action-layer functions the web
+ * video review queue uses; the keyboard is cleared via editMessageReplyMarkup rather
+ * than editMessageText, since the card may be a video or photo message (editMessageText
+ * only works on plain text messages). Edit Caption opens the same awaiting-text pending
+ * session used by idea cards. Regenerate shows a picker (edit vs. optimize the prompt);
+ * both sub-flows key the pending session off the underlying idea id, not the video id,
+ * since that's what editIdeaPrompt/optimizeIdeaPrompt/regenerateVideo operate on.
  */
 async function processVideoCallback(
   db: Database,
@@ -348,5 +418,30 @@ async function processVideoCallback(
       pendingField: "caption",
     });
     await telegram.sendMessage(chatIdStr, "Send me the replacement caption.");
+    return;
+  }
+
+  if (action === "regenerate") {
+    await telegram.sendMessage(chatIdStr, "Regenerate how?", { replyMarkup: regeneratePickerKeyboard(videoId) });
+    return;
+  }
+
+  if (action === "regenerateedit" || action === "regenerateoptimize") {
+    const video = await getVideoById(db, videoId);
+    if (!video) {
+      return;
+    }
+    await setPendingSession(db, chatIdStr, {
+      pendingAction: "awaiting_text",
+      pendingEntityType: action === "regenerateedit" ? "video_regenerate_edit" : "video_regenerate_optimize",
+      pendingEntityId: video.ideaId,
+      pendingField: null,
+    });
+    await telegram.sendMessage(
+      chatIdStr,
+      action === "regenerateedit"
+        ? "Send me the replacement prompt."
+        : "What should Claude fix? Send a short note, or send - to optimize as-is.",
+    );
   }
 }

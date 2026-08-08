@@ -10,7 +10,7 @@ import {
 } from "@/actions/niches";
 import { ActionNotFoundError } from "@/actions/errors";
 import { getDb } from "@/db/client";
-import { ideas, videoProviders } from "@/db/schema";
+import { ideas, videoProviders, videos } from "@/db/schema";
 import {
   Badge,
   type BadgeTone,
@@ -76,7 +76,7 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
     throw error;
   }
 
-  const [providers, allWithConnections, pendingIdeas, generationJobRows] = await Promise.all([
+  const [providers, allWithConnections, pendingIdeas, generationJobRows, pendingVideos] = await Promise.all([
     db.select().from(videoProviders).where(eq(videoProviders.enabled, true)).orderBy(asc(videoProviders.name)),
     listNichesWithConnections(db),
     db
@@ -85,6 +85,10 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
       .where(and(eq(ideas.nicheId, id), eq(ideas.status, "pending_review")))
       .orderBy(desc(ideas.createdAt)),
     listGenerationJobsForNiche(db, id),
+    db
+      .select({ id: videos.id })
+      .from(videos)
+      .where(and(eq(videos.nicheId, id), eq(videos.status, "pending_review"))),
   ]);
   const generationJobs = [...generationJobRows].reverse();
   const connections = allWithConnections.find((n) => n.id === id)?.connections ?? [];
@@ -201,7 +205,7 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
                     <div className="text-sm font-medium">{ideaTitle}</div>
                     <div className="mt-1 text-xs text-fg-subtle">
                       {providerName} · attempt {job.attemptCount}
-                      {job.status === "failed" && job.lastError ? ` · ${job.lastError}` : ""}
+                      {job.lastError ? ` · ${job.lastError}` : ""}
                     </div>
                   </div>
                   <Badge tone={JOB_STATUS_TONES[job.status] ?? "idle"}>
@@ -212,6 +216,22 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
             </ul>
           ) : (
             <p className="text-sm text-fg-subtle">No generation jobs yet — approve an idea to queue one.</p>
+          )}
+        </div>
+      </Panel>
+
+      <Panel className="mt-6">
+        <PanelHeader
+          title="Videos"
+          description="Preview each generated video, edit its caption/hashtags, or regenerate it before approving for scheduling."
+        />
+        <div className="px-6 py-6">
+          {pendingVideos.length > 0 ? (
+            <ButtonLink href={`/niches/${id}/videos`} variant="secondary" className="w-full py-4">
+              Review {pendingVideos.length} pending video{pendingVideos.length === 1 ? "" : "s"} →
+            </ButtonLink>
+          ) : (
+            <p className="text-sm text-fg-subtle">No videos pending review yet.</p>
           )}
         </div>
       </Panel>

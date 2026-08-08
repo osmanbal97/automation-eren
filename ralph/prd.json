@@ -274,8 +274,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 18,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Video review queue (web + Telegram). Web: /niches/[id]/videos lists pending_review videos joined with their idea title/prompt, EmptyState fallback when clear. VideoReviewCard: <video> preview with poster, caption/hashtags edit form (new editVideoHashtags action alongside the existing editVideoCaption), Approve/Reject, and a collapsible Regenerate panel with two sub-flows -- edit the prompt by hand, or have Claude optimize it (reusing optimizeIdeaPrompt) -- both then calling the existing regenerateVideo action to re-queue generation on the same idea. The niche page gained a \"Videos\" panel (pending-review count + link) mirroring the Ideas panel. Also fixed a real gap found while building this: the niche page's Generation jobs panel was only showing lastError when status was \"failed\", not for a completed job whose storage step failed (US-017's scenario) -- the condition now checks lastError alone regardless of status. Telegram: video card gained a \"Regenerate\" button opening an edit/optimize picker; the webhook keys the resulting pending session on the idea id (not the video id) since that's what editIdeaPrompt/optimizeIdeaPrompt/regenerateVideo operate on, then confirms via sendMessage once queued (errors from an ungeneratable idea are caught and reported instead of crashing). Tests: 2 new videos.test.ts cases (editVideoHashtags), 5 new telegram-webhook.test.ts cases (picker + both round trips + error path), 2 new telegram-video-card.test.ts cases (keyboard buttons). tsc/eslint/vitest (241/241) and next build all green."
     },
     {
       "id": "US-019",

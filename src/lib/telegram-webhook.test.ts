@@ -4,7 +4,7 @@ import type { Database } from "@/db/client";
 import { createTestDb } from "@/db/test-db";
 import { getPendingSession } from "@/actions/bot-sessions";
 import { seedBotSession, seedGenerationJob, seedIdea, seedNiche, seedProvider, seedVideo } from "@/actions/test-helpers";
-import { botSessions, ideas, videos } from "@/db/schema";
+import { botSessions, generationJobs, ideas, videos } from "@/db/schema";
 import type { ClaudeClient } from "@/lib/claude-client";
 import type { TelegramClient } from "@/lib/telegram-client";
 import { handleTelegramWebhook, processTelegramUpdate, type TelegramUpdate } from "./telegram-webhook";
@@ -534,6 +534,22 @@ describe("processTelegramUpdate — callback_query (video cards, US-015)", () =>
     return seedVideo(db, niche.id, idea.id, job.id, overrides);
   }
 
+  /** A pending video whose underlying idea is actually generatable (provider +
+   * complete generation specs already set), so regenerateVideo's enqueueGenerationJob
+   * call gets far enough to create a fresh job row instead of throwing early. */
+  async function seedGeneratableVideo() {
+    const niche = await seedNiche(db);
+    const provider = await seedProvider(db);
+    const idea = await seedIdea(db, niche.id, {
+      providerId: provider.id,
+      prompt: "original prompt",
+      generationSpecs: { resolution: "1080x1920", durationSeconds: 8, aspectRatio: "9:16" },
+    });
+    const job = await seedGenerationJob(db, idea.id, provider.id);
+    const video = await seedVideo(db, niche.id, idea.id, job.id);
+    return { niche, provider, idea, job, video };
+  }
+
   beforeEach(async () => {
     db = (await createTestDb()) as unknown as Database;
   });
@@ -625,6 +641,138 @@ describe("processTelegramUpdate — callback_query (video cards, US-015)", () =>
 
     const [updated] = await db.select().from(videos).where(eq(videos.id, video.id));
     expect(updated.caption).toBe("the new caption text");
+    expect(await getPendingSession(db, "42")).toBeNull();
+  });
+
+  it("regenerate opens a picker with edit-prompt and optimize-prompt options", async () => {
+    const video = await seedPendingVideo();
+    const telegram = fakeTelegramClient();
+
+    await processTelegramUpdate(db, telegram, {
+      update_id: 1,
+      callback_query: {
+        id: "cbq-regen-1",
+        data: `video:regenerate:${video.id}`,
+        message: { message_id: 20, chat: { id: 42 } },
+      },
+    });
+
+    expect(telegram.sendMessage).toHaveBeenCalledWith(
+      "42",
+      "Regenerate how?",
+      expect.objectContaining({
+        replyMarkup: expect.objectContaining({
+          inline_keyboard: expect.arrayContaining([
+            expect.arrayContaining([
+              expect.objectContaining({ callback_data: `video:regenerateedit:${video.id}` }),
+              expect.objectContaining({ callback_data: `video:regenerateoptimize:${video.id}` }),
+            ]),
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it("regenerate edit round trip: button tap opens the session keyed on the idea, then a text reply re-queues generation", async () => {
+    const { idea, video } = await seedGeneratableVideo();
+    const telegram = fakeTelegramClient();
+
+    await processTelegramUpdate(db, telegram, {
+      update_id: 1,
+      callback_query: {
+        id: "cbq-regen-2",
+        data: `video:regenerateedit:${video.id}`,
+        message: { message_id: 21, chat: { id: 42 } },
+      },
+    });
+
+    const session = await getPendingSession(db, "42");
+    expect(session).toEqual({
+      pendingAction: "awaiting_text",
+      pendingEntityType: "video_regenerate_edit",
+      pendingEntityId: idea.id,
+      pendingField: null,
+    });
+
+    await processTelegramUpdate(db, telegram, {
+      update_id: 2,
+      message: { message_id: 22, chat: { id: 42 }, text: "a much better prompt" },
+    });
+
+    const [updatedIdea] = await db.select().from(ideas).where(eq(ideas.id, idea.id));
+    expect(updatedIdea.prompt).toBe("a much better prompt");
+    expect(updatedIdea.updatedVia).toBe("telegram");
+    const jobs = await db.select().from(generationJobs).where(eq(generationJobs.ideaId, idea.id));
+    expect(jobs.length).toBeGreaterThan(1);
+    expect(telegram.sendMessage).toHaveBeenCalledWith("42", expect.stringContaining("Regenerating with the new prompt"));
+    expect(await getPendingSession(db, "42")).toBeNull();
+  });
+
+  it("regenerate optimize round trip: button tap opens the session keyed on the idea, then a note reply rewrites the prompt via Claude and re-queues generation", async () => {
+    const { idea, video } = await seedGeneratableVideo();
+    const telegram = fakeTelegramClient();
+    const claudeClient: ClaudeClient = {
+      complete: vi.fn().mockResolvedValue({ status: 200, text: "claude-rewritten prompt" }),
+    };
+
+    await processTelegramUpdate(
+      db,
+      telegram,
+      {
+        update_id: 1,
+        callback_query: {
+          id: "cbq-regen-3",
+          data: `video:regenerateoptimize:${video.id}`,
+          message: { message_id: 23, chat: { id: 42 } },
+        },
+      },
+      { claudeClient },
+    );
+
+    const session = await getPendingSession(db, "42");
+    expect(session).toEqual({
+      pendingAction: "awaiting_text",
+      pendingEntityType: "video_regenerate_optimize",
+      pendingEntityId: idea.id,
+      pendingField: null,
+    });
+
+    await processTelegramUpdate(
+      db,
+      telegram,
+      { update_id: 2, message: { message_id: 24, chat: { id: 42 }, text: "make it punchier" } },
+      { claudeClient },
+    );
+
+    expect(claudeClient.complete).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: expect.stringContaining("make it punchier") }),
+    );
+    const [updatedIdea] = await db.select().from(ideas).where(eq(ideas.id, idea.id));
+    expect(updatedIdea.prompt).toBe("claude-rewritten prompt");
+    const jobs = await db.select().from(generationJobs).where(eq(generationJobs.ideaId, idea.id));
+    expect(jobs.length).toBeGreaterThan(1);
+    expect(telegram.sendMessage).toHaveBeenCalledWith("42", expect.stringContaining("Prompt optimized, regenerating"));
+    expect(await getPendingSession(db, "42")).toBeNull();
+  });
+
+  it("regenerate edit reports the error instead of crashing when the idea isn't generatable", async () => {
+    const video = await seedPendingVideo();
+    const telegram = fakeTelegramClient();
+
+    await processTelegramUpdate(db, telegram, {
+      update_id: 1,
+      callback_query: {
+        id: "cbq-regen-4",
+        data: `video:regenerateedit:${video.id}`,
+        message: { message_id: 25, chat: { id: 42 } },
+      },
+    });
+    await processTelegramUpdate(db, telegram, {
+      update_id: 2,
+      message: { message_id: 26, chat: { id: 42 }, text: "a replacement prompt" },
+    });
+
+    expect(telegram.sendMessage).toHaveBeenCalledWith("42", expect.stringContaining("Couldn't regenerate"));
     expect(await getPendingSession(db, "42")).toBeNull();
   });
 });

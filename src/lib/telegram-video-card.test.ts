@@ -6,6 +6,7 @@ import type { TelegramClient } from "@/lib/telegram-client";
 import {
   getVideoById,
   notifyPendingVideo,
+  regeneratePickerKeyboard,
   sendVideoCard,
   TELEGRAM_DIRECT_VIDEO_LIMIT_BYTES,
   videoCardKeyboard,
@@ -24,7 +25,7 @@ function fakeTelegramClient(): TelegramClient {
 }
 
 describe("videoCardKeyboard", () => {
-  it("has approve/reject and edit caption buttons, all carrying the video id", () => {
+  it("has approve/reject, edit caption, and regenerate buttons, all carrying the video id", () => {
     const keyboard = videoCardKeyboard("video-42");
     const allButtons = keyboard.inline_keyboard.flat();
 
@@ -33,6 +34,21 @@ describe("videoCardKeyboard", () => {
         expect.objectContaining({ callback_data: "video:approve:video-42" }),
         expect.objectContaining({ callback_data: "video:reject:video-42" }),
         expect.objectContaining({ callback_data: "video:editcaption:video-42" }),
+        expect.objectContaining({ callback_data: "video:regenerate:video-42" }),
+      ]),
+    );
+  });
+});
+
+describe("regeneratePickerKeyboard", () => {
+  it("has edit-prompt and optimize-prompt buttons, both carrying the video id", () => {
+    const keyboard = regeneratePickerKeyboard("video-42");
+    const allButtons = keyboard.inline_keyboard.flat();
+
+    expect(allButtons).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ callback_data: "video:regenerateedit:video-42" }),
+        expect.objectContaining({ callback_data: "video:regenerateoptimize:video-42" }),
       ]),
     );
   });

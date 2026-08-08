@@ -16,8 +16,10 @@ function formatCaption(video: Video): string {
   return `${video.caption}${hashtagLine}`;
 }
 
-/** Approve/Reject/Edit Caption keyboard for a video card. Callback data carries only
- * the video id, mirroring US-014's idea cards. */
+/** Approve/Reject/Edit Caption/Regenerate keyboard for a video card. Callback data
+ * carries only the video id, mirroring US-014's idea cards. Regenerate opens a picker
+ * (edit the prompt by hand, or have Claude optimize it) rather than acting immediately,
+ * since it needs a follow-up text reply either way. */
 export function videoCardKeyboard(videoId: string): InlineKeyboardMarkup {
   return {
     inline_keyboard: [
@@ -26,6 +28,19 @@ export function videoCardKeyboard(videoId: string): InlineKeyboardMarkup {
         { text: "❌ Reject", callback_data: `video:reject:${videoId}` },
       ],
       [{ text: "✏️ Edit Caption", callback_data: `video:editcaption:${videoId}` }],
+      [{ text: "🔁 Regenerate", callback_data: `video:regenerate:${videoId}` }],
+    ],
+  };
+}
+
+/** Edit-prompt vs. optimize-prompt picker shown after tapping Regenerate. */
+export function regeneratePickerKeyboard(videoId: string): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: [
+      [
+        { text: "✏️ Edit prompt", callback_data: `video:regenerateedit:${videoId}` },
+        { text: "✨ Optimize prompt", callback_data: `video:regenerateoptimize:${videoId}` },
+      ],
     ],
   };
 }
