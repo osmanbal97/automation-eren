@@ -16,9 +16,10 @@ const NAV: NavItem[] = [
   { href: "/", label: "Overview", glyph: "◎" },
   { href: "/niches", label: "Niches", glyph: "◇" },
   { href: "/settings/providers", label: "Providers", glyph: "⬡" },
+  { href: "/history", label: "History", glyph: "≡" },
+  { href: "/usage", label: "Usage", glyph: "◧" },
   { href: "/videos", label: "Videos", glyph: "▶", soon: true },
   { href: "/schedule", label: "Schedule", glyph: "◷", soon: true },
-  { href: "/history", label: "History", glyph: "≡", soon: true },
 ];
 
 function isActive(pathname: string, href: string) {
