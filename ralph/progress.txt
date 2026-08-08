@@ -839,5 +839,64 @@ Next: per the operator's explicit choice, US-021/022/023 (TikTok/Instagram/YouTu
 connect flows) are next. Since these three are largely independent of each other (separate
 files: authorize redirect + callback route + token exchange per platform, all writing into
 the already-existing platform_connections table), and the operator asked to use worktrees to
-cut wall-clock time, the plan is to run them as parallel isolated-worktree subagents rather
-than sequentially in this session.
+cut wall-clock time, shared primitives (src/lib/oauth-state.ts double-submit-cookie CSRF
+state, and saveConnectionTokens in platform-connections.ts) were built first so each
+platform's implementation touches only its own new files. Checked whether to run the three
+as true isolated `git worktree` subagents to parallelize them, but `git branch -vv` showed
+origin/main as gone and `git log origin/main..HEAD` failed to resolve -- the default
+worktree base-ref behavior branches from origin/<default-branch>, which risked silently
+producing a worktree missing this session's local-only commits (schema/adapters/publish
+pipeline, none of it confirmed pushed). Ran them instead as three plain background
+subagents in this same working directory, each restricted by file-path to its own new
+files (src/lib/platforms/{platform}-oauth.ts + test, src/app/api/auth/{platform}/{authorize,
+callback}/route.ts) and forbidden from running git or touching prd.json/progress.txt --
+still parallel wall-clock-wise, without the base-ref risk.
+
+[US-021 / US-022 / US-023] TikTok, Instagram and YouTube OAuth connect flows
+- Run as three parallel background subagents in this same working directory (not isolated
+  git worktrees -- see the base-ref reasoning in the US-024 entry above), each restricted by
+  file path to its own four new files so they could not collide. Total wall clock ~3 min for
+  all three instead of three sequential passes. Shared files (prd.json, progress.txt,
+  .env.example) and every git operation were kept in this session, which reviewed all twelve
+  files, ran the combined gate, and committed.
+- Shape shared by all three platforms: src/lib/platforms/{platform}-oauth.ts holds pure,
+  fetch-injectable build*AuthorizeUrl + exchange*Code functions returning ConnectionTokens,
+  so the two route handlers stay thin plumbing (cookies, redirects) and need no route tests
+  of their own -- consistent with the existing convention of not unit-testing thin routes.
+- /api/auth/{platform}/authorize?nicheId=<id> mints state via createOAuthState, sets the
+  nonce as an httpOnly 10-minute cookie, and redirects to the platform's consent screen.
+  /api/auth/{platform}/callback verifies state BEFORE anything else and answers a mismatch
+  with a JSON 400 rather than a redirect: the nicheId inside an unverified state cannot be
+  trusted as a redirect target. Past that point every failure (declined consent, failed
+  exchange, failed save) degrades to /niches/<id>?connection_error=<platform>, and success
+  redirects to ?connected=<platform> with the single-use nonce cookie deleted.
+- redirect_uri is derived from request.url in both routes rather than from a new env var, so
+  localhost, each preview deployment and production each get a correct absolute callback with
+  no configuration. The tradeoff, worth remembering when the apps are set up for real: every
+  such host has to be registered as an authorized redirect URI in the TikTok developer
+  portal / Meta app dashboard / Google OAuth client, or the exchange is rejected.
+- Platform specifics: TikTok posts form-urlencoded to /v2/oauth/token/ and stores open_id as
+  externalAccountId. YouTube posts to oauth2.googleapis.com/token then reads
+  channels?part=id&mine=true for the channel id, with access_type=offline + prompt=consent so
+  a refresh_token is actually issued on repeat connects. Instagram needs four sequential Graph
+  calls (code -> short-lived token -> long-lived fb_exchange_token -> /me/accounts -> Page's
+  instagram_business_account) and stores refreshToken as null throughout, because Meta issues
+  no refresh tokens at all -- which is also why InstagramAdapter has no refreshCredentials.
+- Known follow-up, deliberately not solved here: Instagram's long-lived token still expires
+  in ~60 days and nothing re-exchanges it beforehand, so reconnecting is currently the only
+  remedy. Worth a story once the Meta app is actually live.
+- No .env.example change was needed: TIKTOK_CLIENT_KEY/SECRET, META_APP_ID/SECRET and
+  GOOGLE_CLIENT_ID/SECRET already exist there, and deriving redirect_uri from the request
+  avoided introducing any new variable.
+- Every ASSUMPTION each agent had to make (scopes, error-envelope shapes, response field
+  names, first-Page/first-channel selection) is recorded both in the code as
+  "ASSUMPTION (verify against live API)" comments and in each story's prd.json notes.
+- Gate: tsc --noEmit clean, eslint . clean, vitest run 305/305 passing (31 files, up from
+  271/28 -- 34 new OAuth tests: 10 TikTok, 12 Instagram, 12 YouTube), next build green with
+  all six new routes (151 B each, 103 kB First Load JS).
+
+Next: US-025 (post history dashboard), US-026 (quota/spend dashboard) and US-027 (reference-
+video description guidance for niches) are the three remaining open stories. The full publish
+pipeline (US-020 through US-024) plus all three connect flows have now landed, which is the
+PRD phase boundary where the lightened verification policy calls for a full manual
+Postgres/build/curl E2E pass -- that is due before or alongside the dashboard stories.
