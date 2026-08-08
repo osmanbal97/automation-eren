@@ -779,3 +779,65 @@ work than a typical single story, and won't be end-to-end testable for real unti
 developer apps exist (the operator's own responsibility, unchanged from earlier notes).
 US-024 itself has no such dependency -- it can be fully built and unit-tested against fake
 adapters on top of publishScheduledPost regardless of OAuth status.
+
+[US-024] Publish worker (cron)
+- src/actions/publish-worker.ts:
+  - claimDuePosts(db, now, limit=10): atomically selects due scheduled_posts
+    (status="scheduled" AND scheduled_at<=now), oldest-due-first, using Drizzle's native
+    .for("update", {skipLocked:true}) inside a db.transaction(), then flips the claimed
+    rows to status="publishing" before the transaction commits. Against real Postgres this
+    is what makes two overlapping cron invocations safe: a second run's own SKIP LOCKED
+    select excludes any row still locked by an in-flight first transaction (never blocks on
+    it), and once that transaction commits the row is no longer status="scheduled" either,
+    so the second run's WHERE clause excludes it anyway.
+  - runPublishWorkerTick(db, adapters, channel, {now, limit, maxAttempts}): claims a batch,
+    then routes each post through publishScheduledPost (US-020) sequentially (same
+    paid-API-rate-limit rationale as the generation-job poller). This is the retry/backoff
+    piece US-020 deliberately left open: on a "retry_scheduled" outcome it counts that
+    post's accumulated publish_jobs rows and, once MAX_PUBLISH_ATTEMPTS (5, overridable)
+    is reached, marks the post permanently "failed" instead of leaving it eligible forever.
+    Returns a per-outcome tally (claimed/published/awaitingApproval/retryScheduled/
+    failedMaxAttempts) plus per-post results for the cron route's response body.
+- src/lib/platforms/registry.ts (new): buildPlatformAdapters(db, {errorLogStore}) wires
+  TikTok/Instagram/YouTube adapters for the worker -- each adapter constructor already
+  falls back to its own env vars for OAuth app credentials, so the only thing this
+  registry supplies beyond env is YouTube's mandatory quotaStore (createDrizzleQuotaStore,
+  already existed from earlier quota work). Registering an adapter here does not require
+  that platform's connect flow (US-021/022/023) to exist yet -- publishScheduledPost gates
+  on platform_connections.status before ever reaching the adapter, so an adapter with no
+  connected account for a niche simply never gets called.
+- src/app/api/cron/publish/route.ts (new): CRON_SECRET-gated like poll-generation, awaits
+  runPublishWorkerTick synchronously so a failure surfaces in function logs as a real error.
+- Honesty note (load-bearing, verified empirically via a throwaway probe script, since
+  deleted, not committed): @electric-sql/pglite -- the WASM Postgres backing every test in
+  this repo -- serializes every db.transaction() call onto a single logical connection. A
+  second transaction's first statement does not even begin until the first has fully
+  committed, regardless of Promise.all-driven interleaving or setTimeout delays meant to
+  force real overlap. This means no pglite-backed test can exercise genuine concurrent
+  FOR UPDATE SKIP LOCKED contention. The acceptance criterion's "test simulating two
+  overlapping worker runs against the same due post, asserting only one publish attempt
+  happens" is satisfied instead by proving the compare-and-set guard: call claimDuePosts
+  twice in sequence and assert the second call finds nothing left to claim, because the
+  first call already flipped the row off status="scheduled". That guard is the actual
+  correctness property overlapping runs rely on in production; this limitation is spelled
+  out in claimDuePosts's doc comment and in the test itself rather than being overclaimed
+  as "proving concurrency safety."
+- Drizzle ORM 0.44.7 confirmed to natively support .for(strength, config) row-locking
+  (including skipLocked:true) on select query builders, so FOR UPDATE SKIP LOCKED is
+  expressed through the query builder rather than raw SQL.
+- Tests: 9 new publish-worker.test.ts cases -- 5 for claimDuePosts (claims a due post and
+  flips it to publishing, ignores a future-scheduled post, ignores a post not in
+  status="scheduled", the compare-and-set guard described above, respects limit and
+  orders oldest-due-first) and 4 for runPublishWorkerTick (claims+publishes through a fake
+  adapter, retry_scheduled below the attempt cap, permanently failed once the cap is
+  reached, no-op with nothing due).
+- Gate: tsc --noEmit clean, eslint . clean, vitest run 262/262 passing (27 files, up from
+  253/26), next build green with the new /api/cron/publish route (139 B, 103 kB First
+  Load JS, same footprint as the other cron routes).
+
+Next: per the operator's explicit choice, US-021/022/023 (TikTok/Instagram/YouTube OAuth
+connect flows) are next. Since these three are largely independent of each other (separate
+files: authorize redirect + callback route + token exchange per platform, all writing into
+the already-existing platform_connections table), and the operator asked to use worktrees to
+cut wall-clock time, the plan is to run them as parallel isolated-worktree subagents rather
+than sequentially in this session.

@@ -367,8 +367,8 @@
         "Tests pass"
       ],
       "priority": 24,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "claimDuePosts (src/actions/publish-worker.ts) atomically selects due scheduled_posts (status=scheduled, scheduled_at<=now) via Drizzle's native .for('update', {skipLocked:true}) inside a db.transaction(), flipping claimed rows to status=publishing before commit -- real Postgres never double-claims a row, since a second run's SKIP LOCKED select excludes anything still locked by an in-flight first transaction, and once that transaction commits the row is no longer status=scheduled either. runPublishWorkerTick claims a batch, then routes each post through publishScheduledPost (US-020) against a real adapter map (src/lib/platforms/registry.ts, wiring TikTok/Instagram/YouTube with env-var OAuth app creds and a Drizzle-backed quota store for YouTube). This is what finally closes the retry loop US-020 deliberately left open: on retry_scheduled it counts the post's accumulated publish_jobs rows and marks it permanently failed once MAX_PUBLISH_ATTEMPTS (5) is reached, instead of leaving it eligible forever. New /api/cron/publish route, CRON_SECRET-gated like poll-generation. Honesty note verified empirically (throwaway probe script, since deleted): @electric-sql/pglite serializes every db.transaction() call onto one logical connection, so no pglite-backed test can exercise genuinely overlapping FOR UPDATE SKIP LOCKED contention -- the 'two overlapping runs' test instead proves the compare-and-set guard (a claimed post is no longer status=scheduled for a second call to find), which is the property that actually matters for correctness; this limitation is documented in claimDuePosts's doc comment and in the test itself rather than overclaimed. 9 new tests (5 claimDuePosts, 4 runPublishWorkerTick). Gate: tsc --noEmit clean, eslint . clean, vitest run 262/262 passing (27 files), next build green with new /api/cron/publish route."
     },
     {
       "id": "US-025",
