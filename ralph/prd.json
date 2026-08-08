@@ -1,0 +1,400 @@
+{
+  "project": "AI Video Content Automation Pipeline",
+  "branchName": "ralph/ai-video-content-automation",
+  "description": "Personal automation pipeline: Claude generates video ideas -> operator approves (web + Telegram) -> multi-provider video generation (Higgsfield, etc.) with cost estimates -> operator approves video -> scheduled -> auto-published to TikTok/Instagram/YouTube Shorts. Next.js + TypeScript on Vercel, Postgres/Drizzle, Vercel Blob, Vercel Cron.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "App scaffold, deploy, and password gate",
+      "description": "As the only user, I want the dashboard deployed on Vercel and protected by a password so nobody else can see or trigger anything.",
+      "acceptanceCriteria": [
+        "Next.js App Router project scaffolded with TypeScript",
+        "Middleware requires a shared secret password (env var APP_PASSWORD) via a signed login cookie before any page/API route is reachable",
+        "/api/cron/* and /api/telegram/webhook routes are excluded from the password gate and instead check their own secret",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Scaffolded Next.js 15 App Router + TS on Vercel target. Password gate via HMAC-signed cookie (Web Crypto, Edge-compatible). /api/cron/* and /api/telegram/webhook excluded, gated by their own secrets instead. Verified end-to-end with curl against next start. Build/lint/typecheck/tests all green."
+    },
+    {
+      "id": "US-002",
+      "title": "Database schema",
+      "description": "As a developer, I need the core data model in place before building features on top of it.",
+      "acceptanceCriteria": [
+        "Drizzle ORM configured with Postgres connection via env var DATABASE_URL",
+        "Schema defines tables: niches, platform_connections, video_providers, ideas, generation_jobs, videos, scheduled_posts, publish_jobs, api_quota_usage, error_logs, bot_sessions",
+        "Migration generated and runs cleanly against a fresh database",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "Drizzle schema (src/db/schema.ts) with 11 tables: niches, platform_connections, video_providers, ideas, generation_jobs, videos, scheduled_posts, publish_jobs, api_quota_usage, error_logs, bot_sessions. Enums for platform/channel/statuses/pricing_model. approved_via/updated_via-style channel columns (channel enum web|telegram) on ideas/videos for Shared Action Layer tracking. drizzle.config.ts + src/db/client.ts (lazy singleton postgres-js client). Migration generated via drizzle-kit generate (drizzle/0000_dapper_white_queen.sql) and verified by spinning up a real local Postgres 17 instance (Homebrew binaries, temp data dir + unix socket dir under /tmp) and running drizzle-kit migrate against it end-to-end -- confirmed all 11 tables, enums, defaults and FKs created correctly via psql, then tore the instance down. tsc --noEmit, eslint ., and vitest run (8/8) all pass."
+    },
+    {
+      "id": "US-003",
+      "title": "Blob storage wiring",
+      "description": "As a developer, I need somewhere to persist generated video files and thumbnails.",
+      "acceptanceCriteria": [
+        "Vercel Blob helper module: uploadFile, getFileUrl, deleteFile",
+        "videos table (from US-002) stores the Blob URL + size + duration fields",
+        "Unit test for the upload/fetch helper using a mocked Blob client",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "src/lib/blob.ts: uploadFile/getFileUrl/deleteFile wrapping @vercel/blob put/head/del. uploadFile computes sizeBytes directly for Buffer/ArrayBuffer/Blob/string bodies and falls back to head() for streams; returns {url, pathname, contentType, sizeBytes} which maps straight onto the videos table (blobUrl/thumbnailBlobUrl/sizeBytes columns already added in US-002). getFileUrl(url) re-resolves current metadata via head() (existence check + refreshed URL). 5 unit tests in src/lib/blob.test.ts with @vercel/blob mocked via vi.mock. tsc --noEmit clean, eslint . clean, vitest run 13/13 passing."
+    },
+    {
+      "id": "US-004",
+      "title": "Resilient external API client core",
+      "description": "As a developer, I need one shared building block for calling any external API so retry/backoff/quota logic isn't reinvented per integration.",
+      "acceptanceCriteria": [
+        "Shared client wrapper function with exponential backoff + jitter on 429/5xx responses and a max attempt count",
+        "api_quota_usage table helper: recordUsage(provider, units) and checkQuota(provider, unitsNeeded) that pre-checks a configurable daily cap",
+        "Every exhausted-retry failure writes a row to error_logs with provider, operation, payload summary, attempt count",
+        "Unit tests: success path, 429 triggers retry+backoff, exhausted retries throws a typed error, quota pre-check blocks an over-cap call",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "src/lib/resilient-client.ts: callWithRetry() wraps any async op returning {status}; retries on thrown errors and on 429/5xx statuses with exponential backoff (baseDelayMs * 2^(attempt-1)) plus +/-25% jitter, injectable sleep/random for deterministic tests, max attempts configurable. On exhaustion throws typed RetryExhaustedError (provider/operation/attempts/cause) and, if an ErrorLogStore is supplied, writes one error_logs row (provider, operation, payloadSummary, errorMessage, attemptCount). src/lib/quota.ts: QuotaStore abstraction (getUsage/incrementUsage) with createDrizzleQuotaStore() backed by api_quota_usage (upsert via onConflictDoUpdate on provider+usageDate); checkQuota() throws typed QuotaExceededError when usedUnits+neededUnits exceeds a configurable dailyCap, recordUsage() increments the counter. src/lib/error-log.ts: ErrorLogStore abstraction + createDrizzleErrorLogStore() backed by error_logs. Store abstractions let unit tests use in-memory fakes instead of a real DB. 14 new unit tests (resilient-client: success path, 429 retry+succeed, 5xx retry+succeed, non-retryable 4xx short-circuits, exhausted retries throws+logs, thrown network errors retried+logged, typed error fields; quota: under/at/over cap, error field details, zero-usage default, recordUsage increments + isolates by provider/date). tsc --noEmit clean, eslint . clean, vitest run 27/27 passing."
+    },
+    {
+      "id": "US-005",
+      "title": "Shared action layer skeleton",
+      "description": "As a developer, I need the approve/edit/reject business logic to live in one place both the web dashboard and the Telegram bot call into.",
+      "acceptanceCriteria": [
+        "actions/ module with typed function stubs: approveIdea, rejectIdea, editIdeaPrompt, editIdeaCaption, setIdeaProvider, approveVideo, rejectVideo, editVideoCaption, schedulePost, retryPublish",
+        "Each action records which channel triggered it ('web' or 'telegram') via an approved_via/updated_via column on the affected row",
+        "Unit tests for each action function against a test database (in-memory or transactional test DB)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "src/actions/ module: ideas.ts (approveIdea, rejectIdea, editIdeaPrompt, editIdeaCaption, setIdeaProvider), videos.ts (approveVideo, rejectVideo, editVideoCaption), scheduling.ts (schedulePost, retryPublish) -- all real DB-backed implementations (guard-clause validated, not empty stubs), errors.ts (typed ActionNotFoundError / InvalidActionStateError), types.ts (Channel = \"web\"|\"telegram\" derived from the channel pgEnum). Every action writes approvedVia (approve actions) or updatedVia/createdVia (edit/reject/schedule/retry actions) on the affected row. Extended schema (new migration 0001) with updatedVia on ideas/videos, createdVia on scheduled_posts, updatedVia on publish_jobs to support this. src/db/test-db.ts: createTestDb() spins up a fresh, fully-migrated in-memory Postgres via @electric-sql/pglite (a real WASM Postgres build, not a mock) and runs the actual drizzle migrations/ folder against it -- no Docker needed. 18 unit tests across ideas/videos/scheduling.test.ts run against this real in-memory DB per test (fresh instance each time, via test-helpers.ts seed functions), covering the happy path + typed-error paths (not-found, invalid state transition) for every action. tsc --noEmit clean, eslint . clean, vitest run 45/45 passing."
+    },
+    {
+      "id": "US-006",
+      "title": "Provider registry",
+      "description": "As the operator, I want the system to know about multiple video-generation providers with their pricing, so I can pick per niche.",
+      "acceptanceCriteria": [
+        "video_providers table used: name, adapter_key, pricing_model enum (per_second|per_generation|per_credit), unit_price, default_specs JSON, enabled boolean",
+        "Seed data: Higgsfield (enabled), Nano Banana and Omni as disabled placeholders",
+        "Settings page (/settings/providers) lists providers with pricing and enabled state",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "VideoProvider adapter interface + Higgsfield implementation",
+      "description": "As a developer, I need a clean abstraction around video generation providers so the rest of the system doesn't care which vendor is behind it.",
+      "acceptanceCriteria": [
+        "VideoProvider TypeScript interface: submit(prompt, specs) -> jobId, getStatus(jobId) -> queued|processing|complete|failed, getResult(jobId) -> {videoUrl, actualCost?}",
+        "Higgsfield adapter implementing VideoProvider using the resilient client from US-004",
+        "Adapter registry mapping video_providers.adapter_key to its implementation",
+        "Unit tests against a mocked Higgsfield HTTP layer covering all four statuses plus a failure/timeout case",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Cost estimator",
+      "description": "As the operator, I want an approximate cost shown before any paid generation call.",
+      "acceptanceCriteria": [
+        "estimateCost(provider, specs) function supporting all three pricing models (per_second, per_generation, per_credit)",
+        "Unit tests for each pricing model",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "Niche management page",
+      "description": "As the operator, I want to create/edit a niche with its own theme, cadence, and default provider/specs.",
+      "acceptanceCriteria": [
+        "CRUD page /niches: name, theme guidance text, target posts/day per platform, default video provider (from video_providers), default generation specs (resolution/duration/aspect ratio)",
+        "Niche list shows platform connection status per niche",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Platform connection status per niche",
+      "description": "As the operator, I want each niche's TikTok/Instagram/YouTube connection tracked with an honest status.",
+      "acceptanceCriteria": [
+        "Each niche can have 0-1 platform_connections row per platform storing encrypted OAuth tokens and status: disconnected/pending_review/active",
+        "UI on the niche page shows status per platform with a manual toggle to mark active once approved",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "Generate video ideas for a niche",
+      "description": "As the operator, I want to click 'generate ideas' on a niche and get a batch of concrete video concepts with prompts.",
+      "acceptanceCriteria": [
+        "Action generateIdeas(nicheId, count=5) calls Claude via Anthropic SDK using the niche's theme guidance, returns title/concept/prompt/caption/hashtags per idea",
+        "Each created idea inherits the niche's default provider + default specs and has estimated_cost computed via US-008",
+        "Ideas saved with status pending_review",
+        "Unit test mocking the Anthropic call, asserting parsed ideas and inherited defaults are stored correctly",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Idea review queue - web",
+      "description": "As the operator, I want to approve, edit, or reject generated ideas on the web dashboard.",
+      "acceptanceCriteria": [
+        "Review list per niche showing pending ideas with inline edit for prompt/caption",
+        "Provider/specs picker showing live-updated cost estimate",
+        "Approve and Reject buttons call the US-005 action layer",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "Telegram webhook + fast-ack pattern",
+      "description": "As the operator, I want the bot to feel instant even though the work behind it is slow.",
+      "acceptanceCriteria": [
+        "/api/telegram/webhook verifies Telegram's secret token header",
+        "Handler acknowledges every update (200 OK) in under 1s; slow work is dispatched async with results delivered via a follow-up sendMessage/editMessageText",
+        "bot_sessions table tracks chat_id and pending multi-step interaction state",
+        "Unit test asserting the handler responds before a simulated slow operation resolves, and that a plain-text reply routes to the correct pending session",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-014",
+      "title": "Idea approval via Telegram",
+      "description": "As the operator, I want to approve/edit/reject ideas and change their provider from my phone.",
+      "acceptanceCriteria": [
+        "New pending ideas pushed to Telegram with title/concept/prompt/provider/estimated cost and inline buttons: Approve/Reject/Edit Prompt/Edit Caption/Change Provider",
+        "Edit buttons start a bot_sessions text-capture flow that updates the idea via the US-005 action layer and re-sends the updated card",
+        "Change Provider shows an inline keyboard of enabled providers with recalculated price for this idea's specs",
+        "Approve/Reject call the same action functions as the web UI",
+        "Unit tests covering approve, reject, and the edit round-trip via session state",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-015",
+      "title": "Video approval via Telegram",
+      "description": "As the operator, I want to approve/reject generated videos from my phone.",
+      "acceptanceCriteria": [
+        "On generation complete, bot sends the video (direct upload if under Telegram's size limit, else thumbnail + Blob link) with Approve/Reject/Edit Caption buttons",
+        "Buttons call the same action functions as the web video review queue",
+        "Unit test for the size-based branch (small file vs link fallback)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-016",
+      "title": "Generation queue and tracking",
+      "description": "As the operator, I want approved ideas to automatically become provider jobs and see their progress.",
+      "acceptanceCriteria": [
+        "Approving an idea creates a generation_jobs row and submits it via the adapter registry (US-007) using the idea's attached provider/specs",
+        "Cron-driven poller (/api/cron/poll-generation) updates job status with capped retries on transient failure",
+        "Dashboard shows live status per job with last error if failed",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-017",
+      "title": "Store completed videos",
+      "description": "As the operator, I want completed videos pulled into our own storage.",
+      "acceptanceCriteria": [
+        "On job status complete, video file downloaded and uploaded to Vercel Blob via US-003 helper",
+        "videos row created linking to idea/niche, storing actual_cost if the provider reports one",
+        "Thumbnail stored alongside",
+        "Unit test for the download-then-upload flow (mocked)",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-018",
+      "title": "Video review queue - web",
+      "description": "As the operator, I want to watch each generated video and approve/reject it with per-platform captions.",
+      "acceptanceCriteria": [
+        "Review page with inline video preview and per-platform caption/hashtag editor",
+        "Approve sets status ready_to_schedule; reject sets status rejected (kept for history)",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-019",
+      "title": "Scheduling calendar",
+      "description": "As the operator, I want to assign an approved video to platform(s) and a publish time.",
+      "acceptanceCriteria": [
+        "Calendar/list UI to pick platform(s) + datetime for a ready_to_schedule video, creating one scheduled_posts row per platform",
+        "Validation blocks scheduling beyond a per-niche configurable daily cap per platform",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-020",
+      "title": "Publish gating on connection status",
+      "description": "As the operator, I don't want the system to attempt a real public post on a platform that hasn't cleared review.",
+      "acceptanceCriteria": [
+        "Publish worker checks platform_connections.status before attempting a post",
+        "Not active -> post marked awaiting_platform_approval, no API call attempted",
+        "active -> proceeds to the platform adapter",
+        "Unit test covering both branches",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-021",
+      "title": "TikTok Content Posting API adapter",
+      "description": "As the operator, I want approved videos to post to TikTok once the account is audited.",
+      "acceptanceCriteria": [
+        "OAuth connect flow for a TikTok creator account with automatic token refresh (24h expiry)",
+        "video.publish implemented with sandbox/SELF_ONLY mode support pre-audit",
+        "Unit tests: success, 429 backoff, expired-token refresh, audit-not-passed error surfaced clearly",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 21,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-022",
+      "title": "Instagram Graph API adapter",
+      "description": "As the operator, I want approved videos to post as Reels to Instagram once app review is approved.",
+      "acceptanceCriteria": [
+        "OAuth connect flow for a Business account via linked Facebook Page",
+        "Container-model publish flow: POST /{ig-user-id}/media, poll, POST /{ig-user-id}/media_publish",
+        "Videos over 90s rejected client-side with a clear message",
+        "Unit tests: success, container-processing timeout, publish failure, missing-permission error",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-023",
+      "title": "YouTube Data API v3 adapter",
+      "description": "As the operator, I want approved videos to upload as YouTube Shorts.",
+      "acceptanceCriteria": [
+        "OAuth with youtube.upload scope, refresh token stored per niche",
+        "Resumable upload implemented for vertical 9:16 videos under 60s",
+        "Quota tracked via US-004 (1600 units/upload); pre-flight check defers uploads exceeding remaining daily quota",
+        "Unit tests: success, quota pre-check blocks the call, 403 quotaExceeded caught and deferred",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 23,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-024",
+      "title": "Publish worker (cron)",
+      "description": "As the operator, I want due scheduled posts to go out automatically and safely under concurrency.",
+      "acceptanceCriteria": [
+        "/api/cron/publish selects due scheduled_posts using FOR UPDATE SKIP LOCKED so overlapping runs never double-post",
+        "Each due post routed to the correct platform adapter, result recorded on publish_jobs",
+        "Failed posts retried with backoff up to a max, then marked failed",
+        "Test simulating two overlapping worker runs against the same due post, asserting only one publish attempt happens",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 24,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-025",
+      "title": "Post history dashboard",
+      "description": "As the operator, I want one place to see what got posted, what's pending, and what failed.",
+      "acceptanceCriteria": [
+        "Table/list of scheduled_posts/publish_jobs filterable by niche, platform, status",
+        "Failed posts show captured error and a manual retry-now action wired to the US-005 action layer",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 25,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-026",
+      "title": "Quota and spend dashboard",
+      "description": "As the operator, I want to see API usage vs limits and running spend per provider/niche.",
+      "acceptanceCriteria": [
+        "Per-provider per-day API usage vs known cap displayed",
+        "Per-provider running spend (sum of estimated_cost/actual_cost) shown, total and per-niche",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 26,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}

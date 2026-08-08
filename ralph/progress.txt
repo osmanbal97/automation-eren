@@ -1,0 +1,99 @@
+# Ralph Progress Log — AI Video Content Automation Pipeline
+
+Tracking implementation of tasks/prd-ai-video-content-automation.md via ralph/prd.json.
+No ralph.sh autonomous runner is installed in this environment — stories are being
+implemented directly in-session (Claude Code), in priority order, with prd.json's
+`passes` flags updated as each story's acceptance criteria are met.
+
+[US-001] DONE — App scaffold, deploy, password gate.
+  - Next.js 15 App Router + TS, Tailwind v4, ESLint flat config, Vitest.
+  - src/lib/auth.ts: HMAC-SHA256 signed session cookie via Web Crypto (works in
+    Edge middleware AND Node routes, avoided node:crypto which broke webpack
+    build in the Edge middleware bundle).
+  - src/middleware.ts: gates everything except /login, /api/login, /api/cron/*,
+    /api/telegram/webhook.
+  - Stub /api/cron/ping and /api/telegram/webhook routes added to prove the
+    secret-header gating end-to-end (real logic lands in later phases).
+  - Verified with `next build` + `next start` + curl: unauth redirect, cron
+    401/200, telegram 401/200, login 401/200+cookie, authed home 200.
+  - 8 unit tests passing (src/lib/auth.test.ts).
+
+[US-002] DONE — Database schema.
+  - src/db/schema.ts: 11 Drizzle tables (niches, platform_connections,
+    video_providers, ideas, generation_jobs, videos, scheduled_posts,
+    publish_jobs, api_quota_usage, error_logs, bot_sessions) with pgEnums for
+    platform, channel (web/telegram), connection_status, pricing_model,
+    idea_status, generation_job_status, video_status, scheduled_post_status,
+    publish_job_status. ideas/videos carry an `approved_via` channel column so
+    the Shared Action Layer can record which surface (web vs Telegram)
+    performed an approval, per PRD requirement.
+  - drizzle.config.ts + src/db/client.ts (lazy singleton postgres-js client,
+    safe to import without DATABASE_URL set until first query).
+  - Migration generated with drizzle-kit generate -> drizzle/0000_dapper_white_queen.sql.
+  - Verified for real: no Docker daemon available, so used the local
+    Homebrew Postgres 17 binaries to initdb a scratch data dir + short-path
+    unix socket dir under /tmp, started a temp instance, ran
+    `drizzle-kit migrate` against it, confirmed via psql that all 11 tables/
+    enums/defaults/FKs came out correctly, then stopped and deleted the temp
+    instance.
+  - tsc --noEmit clean, eslint . clean, vitest run 8/8 passing.
+
+[US-003] DONE — Blob storage wiring.
+  - src/lib/blob.ts: uploadFile/getFileUrl/deleteFile wrapping @vercel/blob's
+    put/head/del. uploadFile computes sizeBytes directly for
+    Buffer/ArrayBuffer/Blob/string bodies, falls back to head() for streams
+    that don't expose a length up front. Returns {url, pathname, contentType,
+    sizeBytes} which maps directly onto the videos table columns from US-002.
+  - getFileUrl(url) re-resolves current blob metadata via head() (doubles as
+    an existence check before scheduling/publishing).
+  - 5 unit tests (src/lib/blob.test.ts) with @vercel/blob mocked via
+    vi.mock/vi.hoisted.
+  - tsc --noEmit clean, eslint . clean, vitest run 13/13 passing.
+
+[US-004] DONE — Resilient external API client core.
+  - src/lib/resilient-client.ts: callWithRetry() generic wrapper around any
+    async operation returning {status}. Retries on thrown errors and on
+    429/5xx statuses with exponential backoff (baseDelayMs * 2^(attempt-1))
+    + up to 25% jitter; sleep/random are injectable for deterministic tests.
+    On exhaustion throws typed RetryExhaustedError (provider/operation/
+    attempts/cause) and, if given an ErrorLogStore, writes one error_logs row.
+  - src/lib/quota.ts: QuotaStore abstraction (getUsage/incrementUsage) with
+    createDrizzleQuotaStore() backed by api_quota_usage (upsert via
+    onConflictDoUpdate on provider+usageDate). checkQuota() throws typed
+    QuotaExceededError when usedUnits+neededUnits exceeds a configurable
+    dailyCap; recordUsage() increments the counter.
+  - src/lib/error-log.ts: ErrorLogStore abstraction + createDrizzleErrorLogStore()
+    backed by error_logs.
+  - Store abstractions (QuotaStore/ErrorLogStore) let unit tests use
+    in-memory fakes instead of needing a real database.
+  - 14 new unit tests across resilient-client.test.ts and quota.test.ts
+    (success path, 429 retry+succeed, 5xx retry+succeed, non-retryable 4xx
+    short-circuits, exhausted retries throws+logs, thrown network errors
+    retried+logged, typed error fields, quota under/at/over cap, zero-usage
+    default, recordUsage increments + isolates by provider/date).
+  - tsc --noEmit clean, eslint . clean, vitest run 27/27 passing.
+
+[US-005] DONE — Shared action layer skeleton.
+  - src/actions/ideas.ts: approveIdea, rejectIdea, editIdeaPrompt, editIdeaCaption,
+    setIdeaProvider.
+  - src/actions/videos.ts: approveVideo, rejectVideo, editVideoCaption.
+  - src/actions/scheduling.ts: schedulePost, retryPublish.
+  - All are real DB-backed implementations (not empty stubs): each validates
+    the row exists (ActionNotFoundError) and, where relevant, that it's in an
+    allowed source status (InvalidActionStateError) before mutating.
+  - Extended the schema (drizzle/0001_mean_shatterstar.sql) with updatedVia on
+    ideas/videos, createdVia on scheduled_posts, updatedVia on publish_jobs so
+    every action -- not just approvals -- can record which channel
+    ('web' | 'telegram') triggered it, per the Shared Action Layer requirement.
+  - src/db/test-db.ts: createTestDb() boots a fresh, fully-migrated in-memory
+    Postgres via @electric-sql/pglite (a real WASM-compiled Postgres, not a
+    mock) and applies the actual drizzle/ migrations folder -- no Docker
+    needed, and it doubles as a second, independent verification that both
+    migrations (0000 and 0001) apply cleanly.
+  - 18 new unit tests (ideas.test.ts, videos.test.ts, scheduling.test.ts) run
+    against a fresh real database per test via test-helpers.ts seed
+    functions, covering the happy path and both typed-error paths for every
+    action.
+  - tsc --noEmit clean, eslint . clean, vitest run 45/45 passing.
+
+Phase 0 (Foundation) complete: US-001 through US-005 all passing.
