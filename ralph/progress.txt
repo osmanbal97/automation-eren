@@ -156,3 +156,45 @@ faster, per operator request.
   - 6 unit tests: all three pricing models, credits-omitted default, numeric
     vs string unitPrice input, rounding.
   - tsc --noEmit clean, eslint . clean, vitest run 66/66 passing.
+
+[US-009] DONE — Niche management page.
+  - src/actions/niches.ts: getNiche, listNichesWithConnections, createNiche,
+    updateNiche, deleteNiche. No channel tracking here (unlike ideas/videos/
+    scheduling) since niches aren't Telegram-triggered, per US-005's scope.
+    listNichesWithConnections left-joins the default provider's name and
+    groups all platform_connections rows per niche in application code.
+  - src/app/niches/page.tsx: list table (name, default provider or "none",
+    target posts/day per platform, a colored T/I/Y badge per platform
+    defaulting to "disconnected" when no connection row exists yet) plus an
+    inline create form.
+  - src/app/niches/[id]/page.tsx: edit page, real 404 via notFound() for an
+    unknown id, prefilled form, read-only connection-status chips (the
+    toggle-to-connect flow itself is US-010, not this story).
+  - src/app/niches/NicheFormFields.tsx: shared plain (non-"use server") form
+    component reused by create and edit, takes the bound server action as a
+    prop.
+  - src/app/niches/actions.ts: createNicheAction/updateNicheAction/
+    deleteNicheAction, "use server" functions parsing FormData via zod
+    (z.coerce.number() for numeric fields), calling into
+    src/actions/niches.ts, then revalidatePath + redirect("/niches").
+    Default-provider <select> restricted to enabled video_providers only,
+    matching the /settings/providers convention.
+  - 8 new unit tests (src/actions/niches.test.ts) against the real
+    pglite-backed test db.
+  - No dev-browser skill available, so verified manually end-to-end: temp
+    local Postgres 17 -> drizzle-kit migrate -> seed providers -> next
+    build/next start -> logged in via curl through the real password gate ->
+    confirmed /niches renders the empty state, then (after seeding two
+    niches directly via psql -- one with a default provider plus
+    tiktok:active/instagram:pending_review connections, one with neither) -->
+    confirmed the list's provider name, target-posts-per-day text, and
+    per-platform status badges (including the disconnected default) all
+    render correctly -> confirmed /niches/[id] prefills every field
+    correctly (including the pre-selected provider option) and shows the
+    connection statuses as readable labels -> confirmed
+    /niches/<unknown-id> returns a real 404 -> tore the temp instance down.
+    Did not exercise the Server Action POST wire protocol itself via curl
+    (Next.js's multipart/$ACTION_ID encoding isn't practically replicable by
+    hand); that glue code is thin and sits on top of src/actions/niches.ts,
+    which is fully unit tested.
+  - tsc --noEmit clean, eslint . clean, vitest run 74/74 passing.
