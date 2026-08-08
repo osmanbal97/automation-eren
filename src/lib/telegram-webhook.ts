@@ -2,13 +2,15 @@ import { eq } from "drizzle-orm";
 import type { Database } from "@/db/client";
 import { clearPendingSession, getPendingSession, setPendingSession } from "@/actions/bot-sessions";
 import { approveIdea, editIdeaCaption, editIdeaPrompt, rejectIdea, setIdeaProvider } from "@/actions/ideas";
+import { approveVideo, editVideoCaption, rejectVideo } from "@/actions/videos";
 import { ideas, videoProviders } from "@/db/schema";
 import type { TelegramClient } from "@/lib/telegram-client";
 import { formatIdeaCardText, ideaCardKeyboard, providerPickerKeyboard } from "@/lib/telegram-idea-card";
+import { getVideoById } from "@/lib/telegram-video-card";
 import type { GenerationSpecs } from "@/lib/video-providers/types";
 
 /** Minimal subset of Telegram's Update object this bot understands: plain-text replies
- * (US-013) and inline-keyboard button taps (US-014). */
+ * (US-013) and inline-keyboard button taps (US-014, US-015). */
 export interface TelegramUpdate {
   update_id: number;
   message?: {
@@ -101,6 +103,8 @@ async function processTextMessage(db: Database, telegram: TelegramClient, update
     } else if (session.pendingField === "caption") {
       await editIdeaCaption(db, session.pendingEntityId, text, "telegram");
     }
+  } else if (session.pendingEntityType === "video" && session.pendingEntityId && session.pendingField === "caption") {
+    await editVideoCaption(db, session.pendingEntityId, text, "telegram");
   }
 
   await clearPendingSession(db, chatIdStr);
@@ -119,13 +123,10 @@ async function getIdeaWithProvider(db: Database, ideaId: string) {
 }
 
 /**
- * Handles a tap on one of the idea card's inline buttons (US-014): Approve/Reject
- * call the exact same US-005 action-layer functions the web review queue uses;
- * Edit Prompt/Edit Caption open a pending bot_sessions text prompt (resolved by
- * processTextMessage above); Change Provider opens a second inline keyboard of
- * enabled providers, and picking one (setprovider) resolves which idea it's for via
- * that same pending session rather than the callback_data, to stay under Telegram's
- * 64-byte callback_data limit.
+ * Handles a tap on one of a card's inline buttons: idea cards (US-014) or video
+ * cards (US-015). Both dispatch to the exact same US-005 action-layer functions the
+ * web review queues use; the video namespace is the smaller of the two since videos
+ * only ever get Approve/Reject/Edit Caption (no provider to change post-generation).
  */
 async function processCallbackQuery(
   db: Database,
@@ -141,7 +142,15 @@ async function processCallbackQuery(
   }
   const chatIdStr = String(chatId);
   const [namespace, action, id] = data.split(":");
-  if (namespace !== "idea" || !action || !id) {
+  if (!namespace || !action || !id) {
+    return;
+  }
+
+  if (namespace === "video") {
+    await processVideoCallback(db, telegram, chatIdStr, messageId, action, id);
+    return;
+  }
+  if (namespace !== "idea") {
     return;
   }
 
@@ -205,5 +214,48 @@ async function processCallbackQuery(
     await telegram.sendMessage(chatIdStr, formatIdeaCardText(found.idea, found.provider), {
       replyMarkup: ideaCardKeyboard(found.idea.id),
     });
+  }
+}
+
+/**
+ * Handles a tap on a video card's inline buttons (US-015). Approve/Reject call the
+ * same US-005 action-layer functions the web video review queue uses; the keyboard is
+ * cleared via editMessageReplyMarkup rather than editMessageText, since the card may be
+ * a video or photo message (editMessageText only works on plain text messages). Edit
+ * Caption opens the same awaiting-text pending session used by idea cards.
+ */
+async function processVideoCallback(
+  db: Database,
+  telegram: TelegramClient,
+  chatIdStr: string,
+  messageId: number,
+  action: string,
+  videoId: string,
+): Promise<void> {
+  if (action === "approve" || action === "reject") {
+    try {
+      const updated =
+        action === "approve" ? await approveVideo(db, videoId, "telegram") : await rejectVideo(db, videoId, "telegram");
+      const label = action === "approve" ? "✅ Approved" : "❌ Rejected";
+      await telegram.editMessageReplyMarkup(chatIdStr, messageId, { inline_keyboard: [] });
+      await telegram.sendMessage(chatIdStr, `${label}\n\n${updated?.caption ?? "Video"}`);
+    } catch (error) {
+      await telegram.sendMessage(chatIdStr, `Couldn't do that: ${(error as Error).message}`);
+    }
+    return;
+  }
+
+  if (action === "editcaption") {
+    const video = await getVideoById(db, videoId);
+    if (!video) {
+      return;
+    }
+    await setPendingSession(db, chatIdStr, {
+      pendingAction: "awaiting_text",
+      pendingEntityType: "video",
+      pendingEntityId: videoId,
+      pendingField: "caption",
+    });
+    await telegram.sendMessage(chatIdStr, "Send me the replacement caption.");
   }
 }

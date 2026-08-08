@@ -15,6 +15,10 @@ function fakeTelegramClient(): TelegramClient {
   return {
     sendMessage: vi.fn(async () => 1),
     editMessageText: vi.fn(async () => {}),
+    sendVideo: vi.fn(async () => 1),
+    sendPhoto: vi.fn(async () => 1),
+    editMessageCaption: vi.fn(async () => {}),
+    editMessageReplyMarkup: vi.fn(async () => {}),
     answerCallbackQuery: vi.fn(async () => {}),
   };
 }

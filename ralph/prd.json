@@ -227,8 +227,8 @@
         "Tests pass"
       ],
       "priority": 15,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Video cards (sendVideo/sendPhoto/sendMessage size-based branch in telegram-video-card.ts) with Approve/Reject/Edit Caption buttons, dispatched in telegram-webhook.ts's processCallbackQuery via a new video: namespace that reuses approveVideo/rejectVideo/editVideoCaption from the same US-005 action layer the web review queue uses. Keyboard updates use editMessageReplyMarkup (not editMessageText, which fails on photo/video messages). notifyPendingVideo exists but has no call site yet -- nothing produces videos rows until US-016/US-017 land. Verified via tsc + eslint + vitest only (136/136 passing), per the lightened per-story policy; full E2E deferred to the Phase 4 boundary now that US-013/014/015 are all done."
     },
     {
       "id": "US-016",

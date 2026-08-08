@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Database } from "@/db/client";
 import { createTestDb } from "@/db/test-db";
 import { getPendingSession } from "@/actions/bot-sessions";
-import { seedBotSession, seedIdea, seedNiche, seedProvider } from "@/actions/test-helpers";
-import { botSessions, ideas } from "@/db/schema";
+import { seedBotSession, seedGenerationJob, seedIdea, seedNiche, seedProvider, seedVideo } from "@/actions/test-helpers";
+import { botSessions, ideas, videos } from "@/db/schema";
 import type { TelegramClient } from "@/lib/telegram-client";
 import { handleTelegramWebhook, processTelegramUpdate, type TelegramUpdate } from "./telegram-webhook";
 
@@ -12,6 +12,10 @@ function fakeTelegramClient(): TelegramClient {
   return {
     sendMessage: vi.fn(async () => 1),
     editMessageText: vi.fn(async () => {}),
+    sendVideo: vi.fn(async () => 1),
+    sendPhoto: vi.fn(async () => 1),
+    editMessageCaption: vi.fn(async () => {}),
+    editMessageReplyMarkup: vi.fn(async () => {}),
     answerCallbackQuery: vi.fn(async () => {}),
   };
 }
@@ -384,5 +388,111 @@ describe("processTelegramUpdate — callback_query (idea cards, US-014)", () => 
     });
 
     expect(telegram.sendMessage).toHaveBeenCalledWith("42", expect.stringContaining("expired"));
+  });
+});
+
+describe("processTelegramUpdate — callback_query (video cards, US-015)", () => {
+  let db: Database;
+
+  async function seedPendingVideo(overrides: Partial<typeof videos.$inferInsert> = {}) {
+    const niche = await seedNiche(db);
+    const provider = await seedProvider(db);
+    const idea = await seedIdea(db, niche.id);
+    const job = await seedGenerationJob(db, idea.id, provider.id);
+    return seedVideo(db, niche.id, idea.id, job.id, overrides);
+  }
+
+  beforeEach(async () => {
+    db = (await createTestDb()) as unknown as Database;
+  });
+
+  it("approve calls the shared action layer, acks the tap, and clears the keyboard", async () => {
+    const video = await seedPendingVideo({ caption: "Tunnel ride" });
+    const telegram = fakeTelegramClient();
+
+    await processTelegramUpdate(db, telegram, {
+      update_id: 1,
+      callback_query: { id: "cbq-1", data: `video:approve:${video.id}`, message: { message_id: 5, chat: { id: 42 } } },
+    });
+
+    const [updated] = await db.select().from(videos).where(eq(videos.id, video.id));
+    expect(updated.status).toBe("ready_to_schedule");
+    expect(updated.approvedVia).toBe("telegram");
+    expect(telegram.answerCallbackQuery).toHaveBeenCalledWith("cbq-1");
+    expect(telegram.editMessageReplyMarkup).toHaveBeenCalledWith("42", 5, { inline_keyboard: [] });
+    expect(telegram.sendMessage).toHaveBeenCalledWith("42", expect.stringContaining("Approved"));
+  });
+
+  it("reject calls the shared action layer and clears the keyboard", async () => {
+    const video = await seedPendingVideo();
+    const telegram = fakeTelegramClient();
+
+    await processTelegramUpdate(db, telegram, {
+      update_id: 1,
+      callback_query: { id: "cbq-2", data: `video:reject:${video.id}`, message: { message_id: 6, chat: { id: 42 } } },
+    });
+
+    const [updated] = await db.select().from(videos).where(eq(videos.id, video.id));
+    expect(updated.status).toBe("rejected");
+    expect(telegram.editMessageReplyMarkup).toHaveBeenCalledWith("42", 6, { inline_keyboard: [] });
+    expect(telegram.sendMessage).toHaveBeenCalledWith("42", expect.stringContaining("Rejected"));
+  });
+
+  it("reports the error instead of crashing when approving an already-decided video", async () => {
+    const video = await seedPendingVideo({ status: "rejected" });
+    const telegram = fakeTelegramClient();
+
+    await processTelegramUpdate(db, telegram, {
+      update_id: 1,
+      callback_query: { id: "cbq-3", data: `video:approve:${video.id}`, message: { message_id: 7, chat: { id: 42 } } },
+    });
+
+    expect(telegram.sendMessage).toHaveBeenCalledWith("42", expect.stringContaining("Couldn't do that"));
+    expect(telegram.editMessageReplyMarkup).not.toHaveBeenCalled();
+  });
+
+  it("edit caption opens a pending session and asks for replacement text", async () => {
+    const video = await seedPendingVideo();
+    const telegram = fakeTelegramClient();
+
+    await processTelegramUpdate(db, telegram, {
+      update_id: 1,
+      callback_query: {
+        id: "cbq-4",
+        data: `video:editcaption:${video.id}`,
+        message: { message_id: 8, chat: { id: 42 } },
+      },
+    });
+
+    const session = await getPendingSession(db, "42");
+    expect(session).toEqual({
+      pendingAction: "awaiting_text",
+      pendingEntityType: "video",
+      pendingEntityId: video.id,
+      pendingField: "caption",
+    });
+    expect(telegram.sendMessage).toHaveBeenCalledWith("42", expect.stringContaining("replacement caption"));
+  });
+
+  it("edit caption round trip: button tap opens the session, then a text reply applies it", async () => {
+    const video = await seedPendingVideo({ caption: "old caption" });
+    const telegram = fakeTelegramClient();
+
+    await processTelegramUpdate(db, telegram, {
+      update_id: 1,
+      callback_query: {
+        id: "cbq-5",
+        data: `video:editcaption:${video.id}`,
+        message: { message_id: 9, chat: { id: 42 } },
+      },
+    });
+    await processTelegramUpdate(db, telegram, {
+      update_id: 2,
+      message: { message_id: 10, chat: { id: 42 }, text: "the new caption text" },
+    });
+
+    const [updated] = await db.select().from(videos).where(eq(videos.id, video.id));
+    expect(updated.caption).toBe("the new caption text");
+    expect(await getPendingSession(db, "42")).toBeNull();
   });
 });

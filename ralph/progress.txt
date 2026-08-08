@@ -433,3 +433,36 @@ results as pending_review ideas.
     clean, vitest run 124/124 passing (16 new). No manual Postgres/build/
     curl E2E for this story -- planned once US-015 (video approval via
     Telegram) also lands, closing out Phase 4.
+
+[US-015] DONE
+- Video cards: telegram-video-card.ts adds videoCardKeyboard (Approve/Reject/Edit
+  Caption, callback_data video:<action>:<videoId>) and sendVideoCard, which picks
+  between three send paths based on video.sizeBytes vs TELEGRAM_DIRECT_VIDEO_LIMIT_BYTES
+  (50MB): direct telegram.sendVideo when under the limit, telegram.sendPhoto with a
+  Blob link in the caption when a thumbnail exists but the file is too big, and a plain
+  telegram.sendMessage with a link as the last resort when there's no thumbnail either.
+- telegram-client.ts extended with sendVideo/sendPhoto/editMessageCaption/
+  editMessageReplyMarkup (TelegramMediaSendOptions adds an optional caption on top of
+  the existing replyMarkup option). editMessageReplyMarkup is used instead of
+  editMessageText when clearing a video card's keyboard after approve/reject, since
+  editMessageText only works on plain text messages, not photo/video messages.
+- telegram-webhook.ts's processCallbackQuery now dispatches on a video: namespace
+  (previously only idea:) into a new processVideoCallback: approve/reject call
+  approveVideo/rejectVideo from the same US-005 action layer the web review queue
+  uses, then clear the keyboard and send a confirmation; editcaption sets a
+  bot_sessions pending row (pendingEntityType: "video") that processTextMessage
+  already knew how to resolve via editVideoCaption.
+- notifyPendingVideo (chat-configured no-op guard, same pattern as US-014's
+  notifyPendingIdeas) exists in telegram-video-card.ts but has no call site yet --
+  nothing in the codebase produces a videos row today. Wiring it in is part of
+  landing US-016 (generation queue/tracking) and US-017 (store completed videos).
+- Tests: telegram-video-card.test.ts (7 tests) covers videoCardKeyboard and all three
+  sendVideoCard branches explicitly, per the PRD's "unit test for the size-based
+  branch" acceptance criterion, plus notifyPendingVideo's no-op path and getVideoById.
+  telegram-webhook.test.ts gained a "callback_query (video cards, US-015)" describe
+  block (5 tests): approve, reject, bad-state error handling, edit-caption open, and
+  the edit-caption round trip (button tap -> pending session -> text reply applies it).
+- Verified via tsc --noEmit + eslint . + vitest run only (136/136 passing), per the
+  lightened per-story policy established after US-013. Phase 4 (Telegram Bot: US-013,
+  US-014, US-015) is now fully implemented -- a full manual Postgres+build+curl E2E
+  pass is due before starting Phase 5 (Video Generation, US-016+).
