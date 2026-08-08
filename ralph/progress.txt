@@ -352,3 +352,37 @@ results as pending_review ideas.
     their correct empty states afterward. Tore down the temp Postgres
     instance and Next.js server afterward.
   - tsc --noEmit clean, eslint . clean, vitest run 90/90 passing.
+
+[US-013] DONE
+  - Telegram webhook + fast-ack pattern: src/app/api/telegram/webhook/route.ts
+    verifies the X-Telegram-Bot-Api-Secret-Token header, then delegates to
+    src/lib/telegram-webhook.ts::handleTelegramWebhook -- a synchronous
+    function that schedules the real work via an injected scheduleAsync
+    (the route passes Next 15's after()) and returns its {status, body}
+    immediately without ever awaiting that work. Confirmed via a direct
+    experiment that after() throws when invoked outside a real request
+    scope, which is exactly why scheduleAsync is injected rather than
+    imported directly -- it's what makes the fast-ack property testable.
+  - processTelegramUpdate is the deferred work: looks up the chat's
+    bot_sessions row (new src/actions/bot-sessions.ts: getPendingSession/
+    setPendingSession/clearPendingSession, upserting on chat_id), and for
+    a pending idea prompt/caption edit, applies the incoming plain-text
+    reply via the existing shared action layer (editIdeaPrompt/
+    editIdeaCaption, channel=telegram), then confirms via a new
+    src/lib/telegram-client.ts (sendMessage/editMessageText, wrapped in
+    callWithRetry like the video-provider adapters). The bot_sessions
+    table already existed in the schema from Phase 0 -- no migration
+    needed.
+  - New tests: telegram-webhook.test.ts (8 -- auth rejection, the fast-ack
+    timing test via a controllable never-resolving promise, and a
+    multi-chat test proving a reply only touches the replying chat's
+    session/idea), telegram-client.test.ts (4), bot-sessions.test.ts (5).
+    Added seedBotSession to test-helpers.ts.
+  - Verification policy update (agreed with the operator this session):
+    the full manual Postgres/build/curl E2E cycle used for every prior
+    story was too slow given it adds several minutes per story on top of
+    an already-thorough unit-test suite. Going forward that full E2E pass
+    is reserved for phase boundaries; individual stories are verified via
+    tsc + eslint + vitest only, unless something looks risky enough to
+    warrant more.
+  - tsc --noEmit clean, eslint . clean, vitest run 108/108 passing.

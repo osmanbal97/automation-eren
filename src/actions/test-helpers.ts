@@ -1,5 +1,6 @@
 import type { Database } from "@/db/client";
 import {
+  botSessions,
   generationJobs,
   ideas,
   niches,
@@ -110,4 +111,16 @@ export async function seedPublishJob(
     .values({ scheduledPostId, ...overrides })
     .returning();
   return job;
+}
+
+export async function seedBotSession(
+  db: Database,
+  chatId: string,
+  overrides: Partial<typeof botSessions.$inferInsert> = {},
+) {
+  const [session] = await db
+    .insert(botSessions)
+    .values({ chatId, ...overrides })
+    .returning();
+  return session;
 }
