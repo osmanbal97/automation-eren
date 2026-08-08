@@ -495,3 +495,56 @@ results as pending_review ideas.
   infrastructure/auth/DB layer, with bot-specific business logic verified
   via the unit suite. Moving on to Phase 5 (Video Generation, starting
   with US-016).
+
+[REDESIGN] Premium dashboard redesign + prompt optimizer (detour before US-016)
+- Requested by the operator ahead of strict backlog order: the app looked
+  like a bare scaffold (no design tokens, no shell/nav, duplicated input
+  styling), and reviewing bot-sent ideas needed a way to ask Claude to
+  rewrite a weak prompt before spending money generating from it.
+- Phase 1: design foundation. globals.css rewritten as a Tailwind v4 @theme
+  block (ink/accent/semantic color tokens, glass/glow/aurora/grain/shimmer
+  utilities, a system font stack -- no next/font, no network dependency at
+  build time). New dependency-free src/components/ui/ primitives (Button,
+  Panel, Badge, Field/Input/Textarea/Select) replacing the hand-rolled
+  inputClass duplication in NicheFormFields and IdeaReviewCard. Pages moved
+  under a src/app/(dashboard)/ route group (URLs unchanged) wrapped by a new
+  layout.tsx (Sidebar + top bar); /login stays outside the group so it
+  renders full-bleed.
+- Phase 2: every screen (login, overview, niches list/detail, idea review
+  queue, providers settings) rewritten against the Phase 1 primitives --
+  data fetching and server actions untouched, markup/styling only.
+- Phase 3: prompt optimizer. New src/actions/prompt-optimizer.ts ->
+  optimizeIdeaPrompt(db, ideaId, claudeClient, note, channel): loads the
+  idea + its niche's themeGuidance, asks Claude to rewrite the generation
+  prompt (folding in an optional operator note), persists through the
+  existing editIdeaPrompt action so updatedVia/updatedAt tracking stays
+  correct. Wired into the web review card (an "Optimize" bar with an
+  optional note field) and into Telegram (an "Optimize Prompt" button that
+  starts a bot_sessions text-capture flow, same pattern as Edit Prompt).
+- Regenerating a *video* needs the generation-job pipeline that doesn't
+  exist yet, so instead of half-building it: amended US-016's acceptance
+  criteria with a regenerateVideo action (re-submits a new generation job
+  for an existing idea using an edited/optimizer-rewritten prompt, channel
+  recorded), and US-018's with a Regenerate button (video:regenerate:<id>)
+  on both the web and Telegram video review cards, with edit-prompt and
+  optimize-prompt options. These will land as part of implementing US-016
+  and US-018 themselves rather than being forgotten.
+- Verification per the lightened per-story policy: tsc --noEmit, eslint .,
+  vitest run after each phase (145/145 passing by the end, up from 136),
+  plus a full next build re-run after Phase 2 and again after Phase 3 to
+  catch route-group/server-action wiring mistakes that typecheck alone
+  wouldn't. No manual Postgres/curl E2E for this detour -- that's reserved
+  for phase boundaries in the real backlog, and this wasn't one.
+- Also attempted, and abandoned: parallelizing US-016/017 and
+  US-021/022/023 across manually pre-created sibling git worktrees driven
+  by background Agent subagents. This does not work in this environment --
+  a subagent's Bash/Write scope stays pinned to the parent session's
+  worktree even when EnterWorktree is called from inside it and reports
+  success. Both background agents produced zero writes/commits anywhere;
+  confirmed via direct git/filesystem inspection, then killed the still-
+  running one and reverted to sequential work in this worktree. Task added
+  to reconsider parallelization only via Agent's own isolation:"worktree"
+  option (which creates its own worktree rather than being pointed at a
+  pre-existing path), not attempted again the same way.
+- Next: resume the real backlog in priority order starting at US-016
+  (generation queue and tracking).

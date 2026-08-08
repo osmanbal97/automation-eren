@@ -238,6 +238,7 @@
         "Approving an idea creates a generation_jobs row and submits it via the adapter registry (US-007) using the idea's attached provider/specs",
         "Cron-driven poller (/api/cron/poll-generation) updates job status with capped retries on transient failure",
         "Dashboard shows live status per job with last error if failed",
+        "A regenerateVideo action re-submits a new generation job for an existing idea using an edited or optimizer-rewritten prompt, recorded with the originating channel",
         "Typecheck passes",
         "Verify in browser using dev-browser skill"
       ],
@@ -268,6 +269,7 @@
       "acceptanceCriteria": [
         "Review page with inline video preview and per-platform caption/hashtag editor",
         "Approve sets status ready_to_schedule; reject sets status rejected (kept for history)",
+        "Video review card (web) and Telegram video card both expose Regenerate (video:regenerate:<id>) with edit-prompt and optimize-prompt options",
         "Typecheck passes",
         "Verify in browser using dev-browser skill"
       ],
