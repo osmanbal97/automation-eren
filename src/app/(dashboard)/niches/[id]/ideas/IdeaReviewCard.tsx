@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import type { ideas, videoProviders } from "@/db/schema";
 import { estimateCost } from "@/lib/cost-estimator";
 import { Button, Field, Input, Panel, Select, Textarea } from "@/components/ui";
-import { approveIdeaAction, rejectIdeaAction, updateIdeaAction } from "./actions";
+import { approveIdeaAction, optimizePromptAction, rejectIdeaAction, updateIdeaAction } from "./actions";
 
 type Idea = typeof ideas.$inferSelect;
 type Provider = typeof videoProviders.$inferSelect;
@@ -58,6 +58,21 @@ export function IdeaReviewCard({ idea, nicheId, providers }: { idea: Idea; niche
           </form>
         </div>
       </div>
+
+      <form
+        action={optimizePromptAction}
+        className="flex flex-wrap items-center gap-2 border-b border-line bg-ink-900/30 px-6 py-3.5"
+      >
+        <input type="hidden" name="ideaId" value={idea.id} />
+        <input type="hidden" name="nicheId" value={nicheId} />
+        <span className="shrink-0 text-xs font-medium tracking-wide text-fg-subtle uppercase">
+          ✨ Optimize
+        </span>
+        <Input name="note" placeholder="What to fix (optional)…" className="min-w-[10rem] flex-1" />
+        <Button type="submit" variant="secondary" size="sm" className="shrink-0">
+          Rewrite prompt
+        </Button>
+      </form>
 
       <form action={updateIdeaAction} className="space-y-5 px-6 py-6">
         <input type="hidden" name="ideaId" value={idea.id} />

@@ -2,8 +2,11 @@ import { eq } from "drizzle-orm";
 import type { Database } from "@/db/client";
 import { clearPendingSession, getPendingSession, setPendingSession } from "@/actions/bot-sessions";
 import { approveIdea, editIdeaCaption, editIdeaPrompt, rejectIdea, setIdeaProvider } from "@/actions/ideas";
+import { optimizeIdeaPrompt } from "@/actions/prompt-optimizer";
 import { approveVideo, editVideoCaption, rejectVideo } from "@/actions/videos";
 import { ideas, videoProviders } from "@/db/schema";
+import { createAnthropicClaudeClient, type ClaudeClient } from "@/lib/claude-client";
+import { createDrizzleErrorLogStore } from "@/lib/error-log";
 import type { TelegramClient } from "@/lib/telegram-client";
 import { formatIdeaCardText, ideaCardKeyboard, providerPickerKeyboard } from "@/lib/telegram-idea-card";
 import { getVideoById } from "@/lib/telegram-video-card";
@@ -44,6 +47,21 @@ export interface HandleTelegramWebhookResult {
   body: Record<string, unknown>;
 }
 
+/** Injectable dependencies for processTelegramUpdate. Only the "Optimize Prompt" flow
+ * needs a Claude client; tests supply a fake one here instead of hitting the real API,
+ * and the real webhook route leaves this empty so a client is built from env vars. */
+export interface TelegramUpdateDeps {
+  claudeClient?: ClaudeClient;
+}
+
+function createClaudeClientFromEnv(): ClaudeClient {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error("ANTHROPIC_API_KEY is not set");
+  }
+  return createAnthropicClaudeClient({ apiKey });
+}
+
 /**
  * Synchronous by design (US-013's fast-ack pattern): verifies the secret header, then
  * -- if the request is authentic -- schedules the real work via `scheduleAsync` and
@@ -70,20 +88,27 @@ export async function processTelegramUpdate(
   db: Database,
   telegram: TelegramClient,
   update: TelegramUpdate,
+  deps: TelegramUpdateDeps = {},
 ): Promise<void> {
   if (update.callback_query) {
     await processCallbackQuery(db, telegram, update.callback_query);
     return;
   }
-  await processTextMessage(db, telegram, update);
+  await processTextMessage(db, telegram, update, deps);
 }
 
 /**
  * Resolves a plain-text reply against whatever the operator's chat currently has
- * pending (set by the "Edit Prompt"/"Edit Caption" buttons below), applies it through
- * the same shared action layer the web dashboard uses, and confirms via sendMessage.
+ * pending (set by the "Edit Prompt"/"Edit Caption"/"Optimize Prompt" buttons below),
+ * applies it through the same shared action layer the web dashboard uses, and confirms
+ * via sendMessage.
  */
-async function processTextMessage(db: Database, telegram: TelegramClient, update: TelegramUpdate): Promise<void> {
+async function processTextMessage(
+  db: Database,
+  telegram: TelegramClient,
+  update: TelegramUpdate,
+  deps: TelegramUpdateDeps,
+): Promise<void> {
   const chatId = update.message?.chat.id;
   const text = update.message?.text;
   if (chatId === undefined || !text) {
@@ -94,6 +119,11 @@ async function processTextMessage(db: Database, telegram: TelegramClient, update
   const session = await getPendingSession(db, chatIdStr);
   if (!session) {
     await telegram.sendMessage(chatIdStr, "Nothing pending right now — use a card's buttons to start editing something.");
+    return;
+  }
+
+  if (session.pendingEntityType === "idea" && session.pendingEntityId && session.pendingField === "optimize_note") {
+    await handleOptimizeNoteReply(db, telegram, chatIdStr, session.pendingEntityId, text, deps);
     return;
   }
 
@@ -109,6 +139,41 @@ async function processTextMessage(db: Database, telegram: TelegramClient, update
 
   await clearPendingSession(db, chatIdStr);
   await telegram.sendMessage(chatIdStr, "Updated ✅");
+}
+
+/**
+ * Completes the "Optimize Prompt" flow (US-012/US-014's prompt-optimizer): the
+ * operator's reply is either a note on what to fix, or "-" to optimize as-is. Claude
+ * failures (including a missing ANTHROPIC_API_KEY) are reported back to the chat
+ * instead of silently swallowed, since this is the one text-reply flow that calls out
+ * to an external API.
+ */
+async function handleOptimizeNoteReply(
+  db: Database,
+  telegram: TelegramClient,
+  chatIdStr: string,
+  ideaId: string,
+  text: string,
+  deps: TelegramUpdateDeps,
+): Promise<void> {
+  await clearPendingSession(db, chatIdStr);
+  const note = text.trim() === "-" ? "" : text;
+  try {
+    const claudeClient = deps.claudeClient ?? createClaudeClientFromEnv();
+    await optimizeIdeaPrompt(db, ideaId, claudeClient, note, "telegram", {
+      errorLogStore: createDrizzleErrorLogStore(db),
+    });
+  } catch (error) {
+    await telegram.sendMessage(chatIdStr, `Couldn't optimize that prompt: ${(error as Error).message}`);
+    return;
+  }
+  const found = await getIdeaWithProvider(db, ideaId);
+  if (!found) {
+    return;
+  }
+  await telegram.sendMessage(chatIdStr, `✨ Prompt rewritten\n\n${formatIdeaCardText(found.idea, found.provider)}`, {
+    replyMarkup: ideaCardKeyboard(found.idea.id),
+  });
 }
 
 async function getIdeaWithProvider(db: Database, ideaId: string) {
@@ -178,6 +243,17 @@ async function processCallbackQuery(
       chatIdStr,
       action === "editprompt" ? "Send me the replacement prompt." : "Send me the replacement caption.",
     );
+    return;
+  }
+
+  if (action === "optimize") {
+    await setPendingSession(db, chatIdStr, {
+      pendingAction: "awaiting_text",
+      pendingEntityType: "idea",
+      pendingEntityId: id,
+      pendingField: "optimize_note",
+    });
+    await telegram.sendMessage(chatIdStr, "What should Claude fix? Send a short note, or send - to optimize as-is.");
     return;
   }
 

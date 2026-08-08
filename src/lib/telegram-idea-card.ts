@@ -43,6 +43,7 @@ export function ideaCardKeyboard(ideaId: string): InlineKeyboardMarkup {
         { text: "✏️ Edit Prompt", callback_data: `idea:editprompt:${ideaId}` },
         { text: "✏️ Edit Caption", callback_data: `idea:editcaption:${ideaId}` },
       ],
+      [{ text: "✨ Optimize Prompt", callback_data: `idea:optimize:${ideaId}` }],
       [{ text: "🔁 Change Provider", callback_data: `idea:changeprovider:${ideaId}` }],
     ],
   };

@@ -5,6 +5,7 @@ import { createTestDb } from "@/db/test-db";
 import { getPendingSession } from "@/actions/bot-sessions";
 import { seedBotSession, seedGenerationJob, seedIdea, seedNiche, seedProvider, seedVideo } from "@/actions/test-helpers";
 import { botSessions, ideas, videos } from "@/db/schema";
+import type { ClaudeClient } from "@/lib/claude-client";
 import type { TelegramClient } from "@/lib/telegram-client";
 import { handleTelegramWebhook, processTelegramUpdate, type TelegramUpdate } from "./telegram-webhook";
 
@@ -312,6 +313,137 @@ describe("processTelegramUpdate — callback_query (idea cards, US-014)", () => 
     expect(updated.prompt).toBe("the new prompt text");
     expect(await getPendingSession(db, "42")).toBeNull();
   });
+
+  it("optimize prompt opens a pending session and asks what to fix", async () => {
+    const niche = await seedNiche(db);
+    const idea = await seedIdea(db, niche.id);
+    const telegram = fakeTelegramClient();
+
+    await processTelegramUpdate(db, telegram, {
+      update_id: 1,
+      callback_query: {
+        id: "cbq-optimize-1",
+        data: `idea:optimize:${idea.id}`,
+        message: { message_id: 20, chat: { id: 42 } },
+      },
+    });
+
+    const session = await getPendingSession(db, "42");
+    expect(session).toEqual({
+      pendingAction: "awaiting_text",
+      pendingEntityType: "idea",
+      pendingEntityId: idea.id,
+      pendingField: "optimize_note",
+    });
+    expect(telegram.sendMessage).toHaveBeenCalledWith("42", expect.stringContaining("optimize as-is"));
+  });
+
+  it("optimize prompt round trip: a note reply rewrites the prompt via Claude and re-sends the card", async () => {
+    const niche = await seedNiche(db);
+    const idea = await seedIdea(db, niche.id, { prompt: "old prompt" });
+    const telegram = fakeTelegramClient();
+    const claudeClient: ClaudeClient = {
+      complete: vi.fn().mockResolvedValue({ status: 200, text: "a much better rewritten prompt" }),
+    };
+
+    await processTelegramUpdate(
+      db,
+      telegram,
+      {
+        update_id: 1,
+        callback_query: {
+          id: "cbq-optimize-2",
+          data: `idea:optimize:${idea.id}`,
+          message: { message_id: 21, chat: { id: 42 } },
+        },
+      },
+      { claudeClient },
+    );
+    await processTelegramUpdate(
+      db,
+      telegram,
+      { update_id: 2, message: { message_id: 22, chat: { id: 42 }, text: "make it dreamier" } },
+      { claudeClient },
+    );
+
+    expect(claudeClient.complete).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: expect.stringContaining("make it dreamier") }),
+    );
+    const [updated] = await db.select().from(ideas).where(eq(ideas.id, idea.id));
+    expect(updated.prompt).toBe("a much better rewritten prompt");
+    expect(updated.updatedVia).toBe("telegram");
+    expect(await getPendingSession(db, "42")).toBeNull();
+    expect(telegram.sendMessage).toHaveBeenCalledWith(
+      "42",
+      expect.stringContaining("a much better rewritten prompt"),
+      expect.objectContaining({ replyMarkup: expect.any(Object) }),
+    );
+  });
+
+  it("optimize prompt treats a bare - reply as optimizing with no note", async () => {
+    const niche = await seedNiche(db);
+    const idea = await seedIdea(db, niche.id);
+    const telegram = fakeTelegramClient();
+    const claudeClient: ClaudeClient = {
+      complete: vi.fn().mockResolvedValue({ status: 200, text: "rewritten" }),
+    };
+
+    await processTelegramUpdate(
+      db,
+      telegram,
+      {
+        update_id: 1,
+        callback_query: {
+          id: "cbq-optimize-3",
+          data: `idea:optimize:${idea.id}`,
+          message: { message_id: 23, chat: { id: 42 } },
+        },
+      },
+      { claudeClient },
+    );
+    await processTelegramUpdate(
+      db,
+      telegram,
+      { update_id: 2, message: { message_id: 24, chat: { id: 42 }, text: "-" } },
+      { claudeClient },
+    );
+
+    expect(claudeClient.complete).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: expect.not.stringContaining("Operator feedback") }),
+    );
+  });
+
+  it("optimize prompt reports a Claude failure instead of crashing", async () => {
+    const niche = await seedNiche(db);
+    const idea = await seedIdea(db, niche.id);
+    const telegram = fakeTelegramClient();
+    const claudeClient: ClaudeClient = {
+      complete: vi.fn().mockResolvedValue({ status: 500, text: "" }),
+    };
+
+    await processTelegramUpdate(
+      db,
+      telegram,
+      {
+        update_id: 1,
+        callback_query: {
+          id: "cbq-optimize-4",
+          data: `idea:optimize:${idea.id}`,
+          message: { message_id: 25, chat: { id: 42 } },
+        },
+      },
+      { claudeClient },
+    );
+    await processTelegramUpdate(
+      db,
+      telegram,
+      { update_id: 2, message: { message_id: 26, chat: { id: 42 }, text: "-" } },
+      { claudeClient },
+    );
+
+    expect(telegram.sendMessage).toHaveBeenCalledWith("42", expect.stringContaining("Couldn't optimize"));
+    expect(await getPendingSession(db, "42")).toBeNull();
+  }, 15000);
 
   it("change provider opens a picker keyed off a pending session, and setprovider resolves it", async () => {
     const niche = await seedNiche(db);

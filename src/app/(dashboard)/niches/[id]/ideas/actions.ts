@@ -10,6 +10,9 @@ import {
   setIdeaGenerationSpecs,
   setIdeaProvider,
 } from "@/actions/ideas";
+import { optimizeIdeaPrompt } from "@/actions/prompt-optimizer";
+import { createAnthropicClaudeClient } from "@/lib/claude-client";
+import { createDrizzleErrorLogStore } from "@/lib/error-log";
 import { getDb } from "@/db/client";
 
 const updateIdeaFormSchema = z.object({
@@ -59,6 +62,29 @@ export async function rejectIdeaAction(formData: FormData) {
   const { ideaId, nicheId } = ideaIdFormSchema.parse(Object.fromEntries(formData));
   const db = getDb();
   await rejectIdea(db, ideaId, "web");
+  revalidatePath(`/niches/${nicheId}/ideas`);
+  revalidatePath(`/niches/${nicheId}`);
+}
+
+const optimizePromptFormSchema = z.object({
+  ideaId: z.string().uuid(),
+  nicheId: z.string().uuid(),
+  note: z.string().optional().default(""),
+});
+
+/** Rewrites an idea's generation prompt via Claude (US-012 review queue's "optimise
+ * prompt" action), folding in an optional operator note on what to fix. */
+export async function optimizePromptAction(formData: FormData) {
+  const { ideaId, nicheId, note } = optimizePromptFormSchema.parse(Object.fromEntries(formData));
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error("ANTHROPIC_API_KEY is not set");
+  }
+  const db = getDb();
+  const claudeClient = createAnthropicClaudeClient({ apiKey });
+  await optimizeIdeaPrompt(db, ideaId, claudeClient, note, "web", {
+    errorLogStore: createDrizzleErrorLogStore(db),
+  });
   revalidatePath(`/niches/${nicheId}/ideas`);
   revalidatePath(`/niches/${nicheId}`);
 }
