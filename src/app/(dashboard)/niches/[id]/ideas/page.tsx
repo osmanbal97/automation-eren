@@ -5,6 +5,7 @@ import { getNiche } from "@/actions/niches";
 import { ActionNotFoundError } from "@/actions/errors";
 import { getDb } from "@/db/client";
 import { ideas, videoProviders } from "@/db/schema";
+import { EmptyState, PageHeader } from "@/components/ui";
 import { IdeaReviewCard } from "./IdeaReviewCard";
 
 export const dynamic = "force-dynamic";
@@ -36,32 +37,34 @@ export default async function IdeaReviewPage({ params }: { params: Promise<{ id:
   ]);
 
   return (
-    <main className="min-h-screen bg-neutral-950 px-6 py-10 text-neutral-100">
-      <div className="mx-auto max-w-2xl">
-        <Link href={`/niches/${id}`} className="text-sm text-neutral-400 hover:underline">
-          &larr; {niche.name}
-        </Link>
-        <h1 className="mt-2 text-2xl font-semibold">Review ideas</h1>
-        <p className="mt-1 text-sm text-neutral-400">
-          {pendingIdeas.length} idea{pendingIdeas.length === 1 ? "" : "s"} pending review.
-        </p>
+    <>
+      <Link href={`/niches/${id}`} className="text-sm text-fg-muted transition hover:text-fg">
+        ← {niche.name}
+      </Link>
 
-        {pendingIdeas.length === 0 ? (
-          <p className="mt-6 text-sm text-neutral-500">
-            No ideas pending review. Generate some from the{" "}
-            <Link href={`/niches/${id}`} className="underline">
-              niche page
-            </Link>
-            .
-          </p>
-        ) : (
-          <div className="mt-6 space-y-4">
-            {pendingIdeas.map((idea) => (
-              <IdeaReviewCard key={idea.id} idea={idea} nicheId={id} providers={providers} />
-            ))}
-          </div>
-        )}
+      <div className="mt-3">
+        <PageHeader
+          eyebrow="Review queue"
+          title="Ideas"
+          description={`${pendingIdeas.length} idea${pendingIdeas.length === 1 ? "" : "s"} pending review. Tune the prompt — or let Claude optimize it — before approving.`}
+        />
       </div>
-    </main>
+
+      {pendingIdeas.length === 0 ? (
+        <EmptyState title="Queue is clear">
+          Generate more from the{" "}
+          <Link href={`/niches/${id}`} className="text-accent-violet hover:underline">
+            niche page
+          </Link>
+          .
+        </EmptyState>
+      ) : (
+        <div className="space-y-5">
+          {pendingIdeas.map((idea) => (
+            <IdeaReviewCard key={idea.id} idea={idea} nicheId={id} providers={providers} />
+          ))}
+        </div>
+      )}
+    </>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Button } from "@/components/ui";
 
 function LoginForm() {
   const router = useRouter();
@@ -34,30 +35,54 @@ function LoginForm() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-neutral-950 px-4">
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-sm rounded-lg border border-neutral-800 bg-neutral-900 p-6 shadow-xl"
-      >
-        <h1 className="mb-1 text-lg font-semibold text-neutral-100">Content Automation</h1>
-        <p className="mb-4 text-sm text-neutral-400">Enter the dashboard password to continue.</p>
-        <input
-          type="password"
-          autoFocus
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Password"
-          className="mb-3 w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-500"
-        />
-        {error ? <p className="mb-3 text-sm text-red-400">{error}</p> : null}
-        <button
-          type="submit"
-          disabled={submitting || password.length === 0}
-          className="w-full rounded-md bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-900 transition disabled:opacity-50"
-        >
-          {submitting ? "Checking..." : "Enter"}
-        </button>
-      </form>
+    <main className="relative flex min-h-screen items-center justify-center px-4">
+      <div className="aurora" aria-hidden />
+      <div className="grain" aria-hidden />
+
+      <div className="animate-rise w-full max-w-md">
+        <div className="mb-8 flex flex-col items-center text-center">
+          <span className="bg-accent-gradient mb-5 flex size-12 items-center justify-center rounded-2xl text-lg font-semibold text-white shadow-[0_16px_40px_-14px_rgba(139,92,246,0.95)]">
+            ✦
+          </span>
+          <h1 className="text-gradient text-3xl font-semibold tracking-tight">Content Engine</h1>
+          <p className="mt-2 text-sm text-fg-muted">
+            Generate, review and ship short-form video on autopilot.
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="glass rounded-panel p-7">
+          <label className="mb-1.5 block text-xs font-medium tracking-wide text-fg-muted uppercase">
+            Access password
+          </label>
+          <input
+            type="password"
+            autoFocus
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••••••"
+            className="w-full rounded-lg border border-line bg-ink-900/70 px-4 py-3 text-sm tracking-widest text-fg outline-none transition placeholder:text-fg-subtle focus:border-accent-violet/60 focus:ring-2 focus:ring-accent-violet/25"
+          />
+
+          {error ? (
+            <p className="mt-3 rounded-lg border border-danger/30 bg-danger-dim px-3 py-2 text-sm text-danger">
+              {error}
+            </p>
+          ) : null}
+
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={submitting || password.length === 0}
+            className={`mt-5 w-full py-3 ${submitting ? "shimmering" : ""}`}
+          >
+            {submitting ? "Verifying…" : "Enter console"}
+          </Button>
+
+          <p className="mt-5 text-center text-xs text-fg-subtle">
+            Private console · single-operator access
+          </p>
+        </form>
+      </div>
     </main>
   );
 }

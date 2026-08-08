@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { ideas, videoProviders } from "@/db/schema";
 import { estimateCost } from "@/lib/cost-estimator";
+import { Button, Field, Input, Panel, Select, Textarea } from "@/components/ui";
 import { approveIdeaAction, rejectIdeaAction, updateIdeaAction } from "./actions";
 
 type Idea = typeof ideas.$inferSelect;
@@ -13,9 +14,6 @@ interface GenerationSpecsShape {
   durationSeconds?: number;
   aspectRatio?: string;
 }
-
-const inputClass =
-  "mt-1 w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-500";
 
 /** Review-queue card for one pending idea (US-012): inline edit for prompt/caption, a
  * provider/specs picker with a live-updated cost estimate, and Approve/Reject -- all
@@ -37,57 +35,47 @@ export function IdeaReviewCard({ idea, nicheId, providers }: { idea: Idea; niche
   }, [providers, providerId, resolution, durationSeconds, aspectRatio]);
 
   return (
-    <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="font-semibold">{idea.title}</h3>
-          <p className="mt-1 text-sm text-neutral-400">{idea.concept}</p>
+    <Panel className="animate-rise overflow-hidden">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-line px-6 py-5">
+        <div className="min-w-0">
+          <h3 className="text-base font-semibold tracking-tight">{idea.title}</h3>
+          <p className="mt-1.5 text-sm leading-relaxed text-fg-muted">{idea.concept}</p>
         </div>
         <div className="flex shrink-0 gap-2">
           <form action={approveIdeaAction}>
             <input type="hidden" name="ideaId" value={idea.id} />
             <input type="hidden" name="nicheId" value={nicheId} />
-            <button
-              type="submit"
-              className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-green-500"
-            >
-              Approve
-            </button>
+            <Button type="submit" variant="primary" size="sm">
+              ✓ Approve
+            </Button>
           </form>
           <form action={rejectIdeaAction}>
             <input type="hidden" name="ideaId" value={idea.id} />
             <input type="hidden" name="nicheId" value={nicheId} />
-            <button
-              type="submit"
-              className="rounded-md border border-red-800 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:border-red-600"
-            >
+            <Button type="submit" variant="danger" size="sm">
               Reject
-            </button>
+            </Button>
           </form>
         </div>
       </div>
 
-      <form action={updateIdeaAction} className="mt-4 space-y-3">
+      <form action={updateIdeaAction} className="space-y-5 px-6 py-6">
         <input type="hidden" name="ideaId" value={idea.id} />
         <input type="hidden" name="nicheId" value={nicheId} />
 
-        <div>
-          <label className="block text-sm font-medium text-neutral-300">Prompt</label>
-          <textarea name="prompt" required rows={3} defaultValue={idea.prompt} className={inputClass} />
-        </div>
+        <Field label="Prompt">
+          <Textarea name="prompt" required rows={3} defaultValue={idea.prompt} />
+        </Field>
 
-        <div>
-          <label className="block text-sm font-medium text-neutral-300">Caption</label>
-          <textarea name="caption" required rows={2} defaultValue={idea.caption} className={inputClass} />
-        </div>
+        <Field label="Caption">
+          <Textarea name="caption" required rows={2} defaultValue={idea.caption} />
+        </Field>
 
-        <div>
-          <label className="block text-sm font-medium text-neutral-300">Provider</label>
-          <select
+        <Field label="Provider">
+          <Select
             name="providerId"
             value={providerId}
             onChange={(event) => setProviderId(event.target.value)}
-            className={inputClass}
           >
             <option value="">None</option>
             {providers.map((provider) => (
@@ -95,59 +83,53 @@ export function IdeaReviewCard({ idea, nicheId, providers }: { idea: Idea; niche
                 {provider.name}
               </option>
             ))}
-          </select>
-        </div>
+          </Select>
+        </Field>
 
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="block text-sm font-medium text-neutral-300">Resolution</label>
-            <input
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Field label="Resolution">
+            <Input
               name="resolution"
               required
               value={resolution}
               onChange={(event) => setResolution(event.target.value)}
-              className={inputClass}
             />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-neutral-300">Duration (s)</label>
-            <input
+          </Field>
+          <Field label="Duration (s)">
+            <Input
               type="number"
               min={1}
               name="durationSeconds"
               required
               value={durationSeconds}
               onChange={(event) => setDurationSeconds(Number(event.target.value))}
-              className={inputClass}
             />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-neutral-300">Aspect ratio</label>
-            <input
+          </Field>
+          <Field label="Aspect ratio">
+            <Input
               name="aspectRatio"
               required
               value={aspectRatio}
               onChange={(event) => setAspectRatio(event.target.value)}
-              className={inputClass}
             />
-          </div>
+          </Field>
         </div>
 
-        <div className="flex items-center justify-between gap-3 pt-1">
-          <p className="text-sm text-neutral-400">
-            Estimated cost:{" "}
-            <span className="font-medium text-neutral-100">
-              {liveEstimate !== null ? `$${liveEstimate.toFixed(4)}` : "— (pick a provider)"}
+        <div className="-mx-6 -mb-6 mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-line bg-ink-900/40 px-6 py-4">
+          <p className="text-sm text-fg-muted">
+            Estimated cost{" "}
+            <span className="ml-1 text-base font-semibold tabular-nums text-fg">
+              {liveEstimate !== null ? `$${liveEstimate.toFixed(4)}` : "—"}
             </span>
+            {liveEstimate === null ? (
+              <span className="ml-2 text-xs text-fg-subtle">pick a provider</span>
+            ) : null}
           </p>
-          <button
-            type="submit"
-            className="rounded-md bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900 transition hover:bg-white"
-          >
+          <Button type="submit" variant="secondary">
             Save changes
-          </button>
+          </Button>
         </div>
       </form>
-    </div>
+    </Panel>
   );
 }
