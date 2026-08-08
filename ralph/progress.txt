@@ -303,3 +303,52 @@ results as pending_review ideas.
     logic itself is fully covered by the mocked-client unit tests above.
     Tore down the temp Postgres instance and Next.js server afterward.
   - tsc --noEmit clean, eslint . clean, vitest run 85/85 passing.
+
+[US-012] DONE
+  - Idea review queue (web): new route src/app/niches/[id]/ideas/page.tsx
+    lists every pending_review idea for a niche; src/app/niches/[id]/ideas/
+    IdeaReviewCard.tsx (client component) renders one card per idea with
+    inline-editable prompt/caption, a provider select, resolution/duration/
+    aspect-ratio inputs, a live cost estimate recomputed via useMemo using
+    the same estimateCost() (US-008) the server uses, and Approve/Reject
+    buttons.
+  - New src/app/niches/[id]/ideas/actions.ts: updateIdeaAction,
+    approveIdeaAction, rejectIdeaAction -- all thin "use server" wrappers
+    composing directly from the existing US-005 shared action layer
+    (src/actions/ideas.ts), so web and the future Telegram flow (US-014)
+    share the same underlying functions.
+  - Extended src/actions/ideas.ts: setIdeaProvider now recomputes
+    estimated_cost against the idea's current generation_specs, and a new
+    setIdeaGenerationSpecs() sets generation_specs and recomputes
+    estimated_cost against the idea's current provider -- both guarded by
+    a shared isValidGenerationSpecs() check so incomplete specs yield null
+    instead of crashing, keeping the persisted estimated_cost column
+    always in sync with whatever the operator last confirmed.
+  - Added optional aspectRatio to lib/video-providers/types.ts's
+    GenerationSpecs so the review queue's specs picker type-checks
+    cleanly against the shared cost estimator.
+  - Niche edit page: replaced the static pending-ideas list with a
+    "Review N pending ideas ->" link into the new review queue route, and
+    fixed the now-stale "review queue (not built yet)" copy.
+  - 10 new/changed unit tests in src/actions/ideas.test.ts covering cost
+    recomputation in both directions (provider-first, specs-first) and the
+    null-cost cases when either side is missing.
+  - Manual verification: temp Postgres 17 (us012db, port 5547, TCP
+    loopback) -> migrate -> seed providers (Higgsfield per_second $0.20,
+    Nano Banana per_generation $1.50, Omni per_credit $0.05) -> seeded one
+    niche + two pending ideas via psql (one with provider+specs already
+    set, one without) -> next build/next start (PORT=4112) -> curl login
+    -> confirmed the niche page's new review link and the review page's
+    two cards, including the SSR-rendered live estimate ("$1.6000" for the
+    idea with Higgsfield+8s set, "— (pick a provider)" for the other) ->
+    replicated Next.js's Server Action no-JS multipart wire protocol via
+    curl to drive updateIdeaAction for real: edited prompt/caption,
+    switched provider to Nano Banana, changed duration to 10s in one
+    submit -> confirmed via psql every field persisted and estimated_cost
+    was recomputed to "1.5000" (per_generation pricing, duration-
+    independent) -> drove approveIdeaAction and rejectIdeaAction for real
+    over HTTP on the two ideas, confirmed status/approved_via/updated_via
+    via psql -> confirmed both the review page and niche edit page render
+    their correct empty states afterward. Tore down the temp Postgres
+    instance and Next.js server afterward.
+  - tsc --noEmit clean, eslint . clean, vitest run 90/90 passing.

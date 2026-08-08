@@ -144,8 +144,8 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
             <div>
               <h2 className="text-lg font-semibold">Ideas</h2>
               <p className="mt-1 text-sm text-neutral-400">
-                Generates 5 concepts via Claude using this niche&apos;s theme guidance. Review/approve/reject
-                lands on the review queue (not built yet).
+                Generates 5 concepts via Claude using this niche&apos;s theme guidance. Review, edit,
+                approve, or reject each one from the review queue below.
               </p>
             </div>
             <form action={generateIdeasAction.bind(null, id)}>
@@ -159,19 +159,12 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
           </div>
 
           {pendingIdeas.length > 0 ? (
-            <ul className="mt-4 space-y-2">
-              {pendingIdeas.map((idea) => (
-                <li
-                  key={idea.id}
-                  className="flex items-center justify-between gap-3 rounded-md border border-neutral-800 bg-neutral-950 px-4 py-2 text-sm"
-                >
-                  <span>{idea.title}</span>
-                  {idea.estimatedCost && (
-                    <span className="text-neutral-400">${idea.estimatedCost}</span>
-                  )}
-                </li>
-              ))}
-            </ul>
+            <Link
+              href={`/niches/${id}/ideas`}
+              className="mt-4 block rounded-md border border-neutral-800 bg-neutral-950 px-4 py-3 text-sm text-neutral-100 transition hover:border-neutral-600"
+            >
+              Review {pendingIdeas.length} pending idea{pendingIdeas.length === 1 ? "" : "s"} &rarr;
+            </Link>
           ) : (
             <p className="mt-4 text-sm text-neutral-500">No ideas pending review yet.</p>
           )}
