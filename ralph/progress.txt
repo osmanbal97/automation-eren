@@ -386,3 +386,50 @@ results as pending_review ideas.
     tsc + eslint + vitest only, unless something looks risky enough to
     warrant more.
   - tsc --noEmit clean, eslint . clean, vitest run 108/108 passing.
+
+[US-014] DONE — Idea approval via Telegram
+  - Extended TelegramClient: sendMessage/editMessageText take an optional
+    { replyMarkup } (inline keyboard) third arg, and a new
+    answerCallbackQuery(callbackQueryId) stops the tap spinner. Body only
+    includes reply_markup when a keyboard is actually passed, so US-013's
+    existing plain-message tests kept passing unchanged.
+  - New src/lib/telegram-idea-card.ts: formatIdeaCardText (title, concept,
+    prompt, caption, provider + estimated cost), ideaCardKeyboard (Approve/
+    Reject/Edit Prompt/Edit Caption/Change Provider, callback_data shaped
+    "idea:<action>:<ideaId>"), providerPickerKeyboard (one button per
+    enabled provider labeled with its live estimateCost price for the
+    idea's specs, callback_data "idea:setprovider:<providerId>"),
+    sendIdeaCard, and notifyPendingIdeas(db, ideas) -- pushes each newly
+    generated idea to TELEGRAM_OPERATOR_CHAT_ID, no-op if Telegram env
+    vars aren't set, swallows per-idea send failures so a Telegram outage
+    can't break idea generation. Wired into niches/actions.ts's
+    generateIdeasAction right after generateIdeas resolves.
+  - telegram-webhook.ts's processTelegramUpdate now branches on
+    update.callback_query vs update.message. Approve/Reject dispatch to
+    the exact same approveIdea/rejectIdea from the US-005 shared action
+    layer, then editMessageText the original card to show the final state
+    with an empty inline_keyboard (removing the buttons); a bad-state
+    error (e.g. double-tapping Approve) is caught and reported via
+    sendMessage instead of crashing the deferred after() work. Edit
+    Prompt/Edit Caption just set a bot_sessions pending row
+    (pendingAction="awaiting_text") -- US-013's existing plain-text
+    handler already knew how to resolve those. Change Provider is a
+    two-step flow: a provider id + idea id together don't fit under
+    Telegram's 64-byte callback_data limit, so tapping it instead opens a
+    pending session (pendingAction="choosing_provider", entityId=ideaId)
+    and shows the provider-priced keyboard; picking one only needs to
+    carry the provider id, since the idea id comes from that same pending
+    session -- the same bot_sessions mechanism from US-013, now driven by
+    a button tap rather than a text reply.
+  - New tests: telegram-idea-card.test.ts (9 -- card text formatting,
+    both keyboards' shape/pricing, sendIdeaCard, notifyPendingIdeas'
+    no-op paths), plus 8 new callback_query tests added to
+    telegram-webhook.test.ts (approve, reject, approving an
+    already-decided idea, edit-prompt open + full round trip, change
+    provider open + setprovider resolution, and setprovider with no
+    pending session). Extended telegram-client.test.ts with reply_markup/
+    answerCallbackQuery coverage (3 new tests).
+  - Per the lightened verification policy: tsc --noEmit clean, eslint .
+    clean, vitest run 124/124 passing (16 new). No manual Postgres/build/
+    curl E2E for this story -- planned once US-015 (video approval via
+    Telegram) also lands, closing out Phase 4.

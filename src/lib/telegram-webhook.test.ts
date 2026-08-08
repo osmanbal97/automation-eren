@@ -2,7 +2,8 @@ import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Database } from "@/db/client";
 import { createTestDb } from "@/db/test-db";
-import { seedBotSession, seedIdea, seedNiche } from "@/actions/test-helpers";
+import { getPendingSession } from "@/actions/bot-sessions";
+import { seedBotSession, seedIdea, seedNiche, seedProvider } from "@/actions/test-helpers";
 import { botSessions, ideas } from "@/db/schema";
 import type { TelegramClient } from "@/lib/telegram-client";
 import { handleTelegramWebhook, processTelegramUpdate, type TelegramUpdate } from "./telegram-webhook";
@@ -11,6 +12,7 @@ function fakeTelegramClient(): TelegramClient {
   return {
     sendMessage: vi.fn(async () => 1),
     editMessageText: vi.fn(async () => {}),
+    answerCallbackQuery: vi.fn(async () => {}),
   };
 }
 
@@ -194,5 +196,193 @@ describe("processTelegramUpdate", () => {
     expect(sessionB.pendingAction).toBe("awaiting_text");
     expect(telegram.sendMessage).toHaveBeenCalledTimes(1);
     expect(telegram.sendMessage).toHaveBeenCalledWith("1001", expect.stringContaining("Updated"));
+  });
+});
+
+describe("processTelegramUpdate — callback_query (idea cards, US-014)", () => {
+  let db: Database;
+
+  beforeEach(async () => {
+    db = (await createTestDb()) as unknown as Database;
+  });
+
+  it("approve calls the shared action layer, acks the tap, and removes the keyboard", async () => {
+    const niche = await seedNiche(db);
+    const idea = await seedIdea(db, niche.id, { title: "Tunnel ride" });
+    const telegram = fakeTelegramClient();
+
+    await processTelegramUpdate(db, telegram, {
+      update_id: 1,
+      callback_query: { id: "cbq-1", data: `idea:approve:${idea.id}`, message: { message_id: 5, chat: { id: 42 } } },
+    });
+
+    const [updated] = await db.select().from(ideas).where(eq(ideas.id, idea.id));
+    expect(updated.status).toBe("approved");
+    expect(updated.approvedVia).toBe("telegram");
+    expect(telegram.answerCallbackQuery).toHaveBeenCalledWith("cbq-1");
+    expect(telegram.editMessageText).toHaveBeenCalledWith(
+      "42",
+      5,
+      expect.stringContaining("Approved"),
+      { replyMarkup: { inline_keyboard: [] } },
+    );
+  });
+
+  it("reject calls the shared action layer and updates the card", async () => {
+    const niche = await seedNiche(db);
+    const idea = await seedIdea(db, niche.id);
+    const telegram = fakeTelegramClient();
+
+    await processTelegramUpdate(db, telegram, {
+      update_id: 1,
+      callback_query: { id: "cbq-2", data: `idea:reject:${idea.id}`, message: { message_id: 6, chat: { id: 42 } } },
+    });
+
+    const [updated] = await db.select().from(ideas).where(eq(ideas.id, idea.id));
+    expect(updated.status).toBe("rejected");
+    expect(telegram.editMessageText).toHaveBeenCalledWith(
+      "42",
+      6,
+      expect.stringContaining("Rejected"),
+      { replyMarkup: { inline_keyboard: [] } },
+    );
+  });
+
+  it("reports the error instead of crashing when approving an already-decided idea", async () => {
+    const niche = await seedNiche(db);
+    const idea = await seedIdea(db, niche.id, { status: "approved" });
+    const telegram = fakeTelegramClient();
+
+    await processTelegramUpdate(db, telegram, {
+      update_id: 1,
+      callback_query: { id: "cbq-3", data: `idea:approve:${idea.id}`, message: { message_id: 7, chat: { id: 42 } } },
+    });
+
+    expect(telegram.sendMessage).toHaveBeenCalledWith("42", expect.stringContaining("Couldn't do that"));
+    expect(telegram.editMessageText).not.toHaveBeenCalled();
+  });
+
+  it("edit prompt opens a pending session and asks for replacement text", async () => {
+    const niche = await seedNiche(db);
+    const idea = await seedIdea(db, niche.id);
+    const telegram = fakeTelegramClient();
+
+    await processTelegramUpdate(db, telegram, {
+      update_id: 1,
+      callback_query: {
+        id: "cbq-4",
+        data: `idea:editprompt:${idea.id}`,
+        message: { message_id: 8, chat: { id: 42 } },
+      },
+    });
+
+    const session = await getPendingSession(db, "42");
+    expect(session).toEqual({
+      pendingAction: "awaiting_text",
+      pendingEntityType: "idea",
+      pendingEntityId: idea.id,
+      pendingField: "prompt",
+    });
+    expect(telegram.sendMessage).toHaveBeenCalledWith("42", expect.stringContaining("replacement prompt"));
+  });
+
+  it("edit prompt round trip: button tap opens the session, then a text reply applies it", async () => {
+    const niche = await seedNiche(db);
+    const idea = await seedIdea(db, niche.id, { prompt: "old prompt" });
+    const telegram = fakeTelegramClient();
+
+    await processTelegramUpdate(db, telegram, {
+      update_id: 1,
+      callback_query: {
+        id: "cbq-5",
+        data: `idea:editprompt:${idea.id}`,
+        message: { message_id: 9, chat: { id: 42 } },
+      },
+    });
+    await processTelegramUpdate(db, telegram, {
+      update_id: 2,
+      message: { message_id: 10, chat: { id: 42 }, text: "the new prompt text" },
+    });
+
+    const [updated] = await db.select().from(ideas).where(eq(ideas.id, idea.id));
+    expect(updated.prompt).toBe("the new prompt text");
+    expect(await getPendingSession(db, "42")).toBeNull();
+  });
+
+  it("change provider opens a picker keyed off a pending session, and setprovider resolves it", async () => {
+    const niche = await seedNiche(db);
+    const higgsfield = await seedProvider(db, { name: "Higgsfield", unitPrice: "0.10", enabled: true });
+    const otherProvider = await seedProvider(db, {
+      name: "Nano Banana",
+      adapterKey: "nano_banana",
+      unitPrice: "0.25",
+      enabled: true,
+    });
+    const idea = await seedIdea(db, niche.id, {
+      providerId: higgsfield.id,
+      generationSpecs: { resolution: "1080x1920", durationSeconds: 8, aspectRatio: "9:16" },
+    });
+    const telegram = fakeTelegramClient();
+
+    await processTelegramUpdate(db, telegram, {
+      update_id: 1,
+      callback_query: {
+        id: "cbq-6",
+        data: `idea:changeprovider:${idea.id}`,
+        message: { message_id: 11, chat: { id: 42 } },
+      },
+    });
+
+    const session = await getPendingSession(db, "42");
+    expect(session?.pendingAction).toBe("choosing_provider");
+    expect(session?.pendingEntityId).toBe(idea.id);
+    expect(telegram.sendMessage).toHaveBeenCalledWith(
+      "42",
+      "Pick a provider:",
+      expect.objectContaining({
+        replyMarkup: expect.objectContaining({
+          inline_keyboard: expect.arrayContaining([
+            [{ text: "Nano Banana — $2.0000", callback_data: `idea:setprovider:${otherProvider.id}` }],
+          ]),
+        }),
+      }),
+    );
+
+    await processTelegramUpdate(db, telegram, {
+      update_id: 2,
+      callback_query: {
+        id: "cbq-7",
+        data: `idea:setprovider:${otherProvider.id}`,
+        message: { message_id: 12, chat: { id: 42 } },
+      },
+    });
+
+    const [updated] = await db.select().from(ideas).where(eq(ideas.id, idea.id));
+    expect(updated.providerId).toBe(otherProvider.id);
+    expect(updated.estimatedCost).toBe("2.0000");
+    expect(await getPendingSession(db, "42")).toBeNull();
+    expect(telegram.sendMessage).toHaveBeenCalledWith(
+      "42",
+      expect.stringContaining("Nano Banana"),
+      expect.objectContaining({ replyMarkup: expect.any(Object) }),
+    );
+  });
+
+  it("setprovider without a pending session tells the operator the picker expired", async () => {
+    const niche = await seedNiche(db);
+    const provider = await seedProvider(db);
+    await seedIdea(db, niche.id);
+    const telegram = fakeTelegramClient();
+
+    await processTelegramUpdate(db, telegram, {
+      update_id: 1,
+      callback_query: {
+        id: "cbq-8",
+        data: `idea:setprovider:${provider.id}`,
+        message: { message_id: 13, chat: { id: 42 } },
+      },
+    });
+
+    expect(telegram.sendMessage).toHaveBeenCalledWith("42", expect.stringContaining("expired"));
   });
 });

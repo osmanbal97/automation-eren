@@ -53,4 +53,41 @@ describe("createTelegramClient", () => {
     await expect(client.sendMessage("123", "hi")).rejects.toThrow(/failed after 4 attempt\(s\)/);
     expect(fetchImpl).toHaveBeenCalledTimes(4);
   });
+
+  it("sendMessage includes reply_markup only when an inline keyboard is passed", async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(jsonResponse(200, { ok: true, result: { message_id: 7 } }));
+    const client = createTelegramClient({ botToken: "test-token", fetchImpl: fetchImpl as unknown as typeof fetch });
+    const replyMarkup = { inline_keyboard: [[{ text: "Approve", callback_data: "idea:approve:1" }]] };
+
+    await client.sendMessage("123", "card text", { replyMarkup });
+
+    const [, init] = fetchImpl.mock.calls[0];
+    expect(JSON.parse(init.body)).toEqual({ chat_id: "123", text: "card text", reply_markup: replyMarkup });
+  });
+
+  it("editMessageText passes an empty inline_keyboard through to remove buttons", async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(jsonResponse(200, { ok: true, result: {} }));
+    const client = createTelegramClient({ botToken: "test-token", fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    await client.editMessageText("123", 7, "done", { replyMarkup: { inline_keyboard: [] } });
+
+    const [, init] = fetchImpl.mock.calls[0];
+    expect(JSON.parse(init.body)).toEqual({
+      chat_id: "123",
+      message_id: 7,
+      text: "done",
+      reply_markup: { inline_keyboard: [] },
+    });
+  });
+
+  it("answerCallbackQuery posts the callback_query_id", async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(jsonResponse(200, { ok: true, result: true }));
+    const client = createTelegramClient({ botToken: "test-token", fetchImpl: fetchImpl as unknown as typeof fetch });
+
+    await client.answerCallbackQuery("cbq-123");
+
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe("https://api.telegram.org/bottest-token/answerCallbackQuery");
+    expect(JSON.parse(init.body)).toEqual({ callback_query_id: "cbq-123" });
+  });
 });

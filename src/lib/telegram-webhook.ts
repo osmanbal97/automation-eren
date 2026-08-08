@@ -1,17 +1,28 @@
+import { eq } from "drizzle-orm";
 import type { Database } from "@/db/client";
-import { clearPendingSession, getPendingSession } from "@/actions/bot-sessions";
-import { editIdeaCaption, editIdeaPrompt } from "@/actions/ideas";
+import { clearPendingSession, getPendingSession, setPendingSession } from "@/actions/bot-sessions";
+import { approveIdea, editIdeaCaption, editIdeaPrompt, rejectIdea, setIdeaProvider } from "@/actions/ideas";
+import { ideas, videoProviders } from "@/db/schema";
 import type { TelegramClient } from "@/lib/telegram-client";
+import { formatIdeaCardText, ideaCardKeyboard, providerPickerKeyboard } from "@/lib/telegram-idea-card";
+import type { GenerationSpecs } from "@/lib/video-providers/types";
 
-/** Minimal subset of Telegram's Update object this bot understands. Inline-keyboard
- * callback_query handling (which creates the pending sessions this module resolves)
- * lands in US-014; this only needs the plain-text message shape. */
+/** Minimal subset of Telegram's Update object this bot understands: plain-text replies
+ * (US-013) and inline-keyboard button taps (US-014). */
 export interface TelegramUpdate {
   update_id: number;
   message?: {
     message_id: number;
     chat: { id: number };
     text?: string;
+  };
+  callback_query?: {
+    id: string;
+    data?: string;
+    message?: {
+      message_id: number;
+      chat: { id: number };
+    };
   };
 }
 
@@ -50,20 +61,27 @@ export function handleTelegramWebhook(params: HandleTelegramWebhookParams): Hand
 }
 
 /**
- * The deferred "slow work" itself: resolves a plain-text reply against whatever the
- * operator's chat currently has pending, applies it through the same shared action
- * layer the web dashboard uses, and confirms via sendMessage.
- *
- * Only idea prompt/caption edits are wired up today, since those are the only
- * multi-step text interactions defined so far (US-014 introduces the inline "Edit
- * Prompt"/"Edit Caption" buttons that create these sessions in the first place; video
- * caption edits follow the same shape once US-015 lands).
+ * The deferred "slow work" itself: routes a message-shaped update to the plain-text
+ * handler and a callback_query-shaped update to the button-tap handler.
  */
 export async function processTelegramUpdate(
   db: Database,
   telegram: TelegramClient,
   update: TelegramUpdate,
 ): Promise<void> {
+  if (update.callback_query) {
+    await processCallbackQuery(db, telegram, update.callback_query);
+    return;
+  }
+  await processTextMessage(db, telegram, update);
+}
+
+/**
+ * Resolves a plain-text reply against whatever the operator's chat currently has
+ * pending (set by the "Edit Prompt"/"Edit Caption" buttons below), applies it through
+ * the same shared action layer the web dashboard uses, and confirms via sendMessage.
+ */
+async function processTextMessage(db: Database, telegram: TelegramClient, update: TelegramUpdate): Promise<void> {
   const chatId = update.message?.chat.id;
   const text = update.message?.text;
   if (chatId === undefined || !text) {
@@ -87,4 +105,105 @@ export async function processTelegramUpdate(
 
   await clearPendingSession(db, chatIdStr);
   await telegram.sendMessage(chatIdStr, "Updated ✅");
+}
+
+async function getIdeaWithProvider(db: Database, ideaId: string) {
+  const [idea] = await db.select().from(ideas).where(eq(ideas.id, ideaId));
+  if (!idea) {
+    return null;
+  }
+  const provider = idea.providerId
+    ? (await db.select().from(videoProviders).where(eq(videoProviders.id, idea.providerId)))[0]
+    : null;
+  return { idea, provider: provider ?? null };
+}
+
+/**
+ * Handles a tap on one of the idea card's inline buttons (US-014): Approve/Reject
+ * call the exact same US-005 action-layer functions the web review queue uses;
+ * Edit Prompt/Edit Caption open a pending bot_sessions text prompt (resolved by
+ * processTextMessage above); Change Provider opens a second inline keyboard of
+ * enabled providers, and picking one (setprovider) resolves which idea it's for via
+ * that same pending session rather than the callback_data, to stay under Telegram's
+ * 64-byte callback_data limit.
+ */
+async function processCallbackQuery(
+  db: Database,
+  telegram: TelegramClient,
+  callbackQuery: NonNullable<TelegramUpdate["callback_query"]>,
+): Promise<void> {
+  const chatId = callbackQuery.message?.chat.id;
+  const messageId = callbackQuery.message?.message_id;
+  const data = callbackQuery.data;
+  await telegram.answerCallbackQuery(callbackQuery.id);
+  if (chatId === undefined || messageId === undefined || !data) {
+    return;
+  }
+  const chatIdStr = String(chatId);
+  const [namespace, action, id] = data.split(":");
+  if (namespace !== "idea" || !action || !id) {
+    return;
+  }
+
+  if (action === "approve" || action === "reject") {
+    try {
+      const updated = action === "approve" ? await approveIdea(db, id, "telegram") : await rejectIdea(db, id, "telegram");
+      const label = action === "approve" ? "✅ Approved" : "❌ Rejected";
+      await telegram.editMessageText(chatIdStr, messageId, `${label}\n\n${updated.title}`, {
+        replyMarkup: { inline_keyboard: [] },
+      });
+    } catch (error) {
+      await telegram.sendMessage(chatIdStr, `Couldn't do that: ${(error as Error).message}`);
+    }
+    return;
+  }
+
+  if (action === "editprompt" || action === "editcaption") {
+    await setPendingSession(db, chatIdStr, {
+      pendingAction: "awaiting_text",
+      pendingEntityType: "idea",
+      pendingEntityId: id,
+      pendingField: action === "editprompt" ? "prompt" : "caption",
+    });
+    await telegram.sendMessage(
+      chatIdStr,
+      action === "editprompt" ? "Send me the replacement prompt." : "Send me the replacement caption.",
+    );
+    return;
+  }
+
+  if (action === "changeprovider") {
+    const found = await getIdeaWithProvider(db, id);
+    if (!found) {
+      return;
+    }
+    const providers = await db.select().from(videoProviders).where(eq(videoProviders.enabled, true));
+    await setPendingSession(db, chatIdStr, {
+      pendingAction: "choosing_provider",
+      pendingEntityType: "idea",
+      pendingEntityId: id,
+      pendingField: null,
+    });
+    await telegram.sendMessage(chatIdStr, "Pick a provider:", {
+      replyMarkup: providerPickerKeyboard(providers, found.idea.generationSpecs as GenerationSpecs),
+    });
+    return;
+  }
+
+  if (action === "setprovider") {
+    const session = await getPendingSession(db, chatIdStr);
+    if (!session || session.pendingAction !== "choosing_provider" || !session.pendingEntityId) {
+      await telegram.sendMessage(chatIdStr, "That provider picker expired — tap Change Provider again.");
+      return;
+    }
+    await setIdeaProvider(db, session.pendingEntityId, id, "telegram");
+    await clearPendingSession(db, chatIdStr);
+    const found = await getIdeaWithProvider(db, session.pendingEntityId);
+    if (!found) {
+      return;
+    }
+    await telegram.sendMessage(chatIdStr, formatIdeaCardText(found.idea, found.provider), {
+      replyMarkup: ideaCardKeyboard(found.idea.id),
+    });
+  }
 }

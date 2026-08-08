@@ -9,6 +9,7 @@ import { setConnectionStatus } from "@/actions/platform-connections";
 import { createAnthropicClaudeClient } from "@/lib/claude-client";
 import { getDb } from "@/db/client";
 import { createDrizzleErrorLogStore } from "@/lib/error-log";
+import { notifyPendingIdeas } from "@/lib/telegram-idea-card";
 
 const nicheFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -78,7 +79,8 @@ export async function updateConnectionStatusAction(formData: FormData) {
 }
 
 /** Generates 5 fresh ideas for a niche via Claude. Ideas land as pending_review;
- * reviewing/approving/rejecting them is US-012's job, not this action's. */
+ * reviewing/approving/rejecting them happens on the web review queue (US-012) or, once
+ * pushed as Telegram cards (US-014), from the operator's chat. */
 export async function generateIdeasAction(nicheId: string) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -86,6 +88,9 @@ export async function generateIdeasAction(nicheId: string) {
   }
   const db = getDb();
   const claudeClient = createAnthropicClaudeClient({ apiKey });
-  await generateIdeas(db, nicheId, claudeClient, 5, { errorLogStore: createDrizzleErrorLogStore(db) });
+  const createdIdeas = await generateIdeas(db, nicheId, claudeClient, 5, {
+    errorLogStore: createDrizzleErrorLogStore(db),
+  });
+  await notifyPendingIdeas(db, createdIdeas);
   revalidatePath(`/niches/${nicheId}`);
 }
