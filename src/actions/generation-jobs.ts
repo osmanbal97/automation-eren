@@ -6,6 +6,7 @@ import { getVideoProvider } from "@/lib/video-providers/registry";
 import type { GenerationSpecs, VideoProvider } from "@/lib/video-providers/types";
 import { ActionNotFoundError, InvalidActionStateError } from "./errors";
 import { approveIdea } from "./ideas";
+import { storeCompletedVideo as defaultStoreCompletedVideo, type StoreVideoOptions } from "./store-video";
 import type { Channel } from "./types";
 
 /**
@@ -26,6 +27,9 @@ export interface GenerationQueueOptions {
   errorLogStore?: ErrorLogStore;
   /** Attempts a single job gets before the poller gives up and marks it failed. */
   maxAttempts?: number;
+  /** Injectable (US-017) so tests can assert a completed job triggers storage
+   * without exercising the real network/Blob layer. */
+  storeCompletedVideo?: (db: Database, jobId: string, options?: StoreVideoOptions) => Promise<unknown>;
 }
 
 const DEFAULT_MAX_ATTEMPTS = 4;
@@ -159,13 +163,30 @@ export async function pollGenerationJob(
         .set({
           status: "complete",
           resultVideoUrl: result.videoUrl,
+          thumbnailSourceUrl: result.thumbnailUrl ?? null,
           actualCost: result.actualCost != null ? result.actualCost.toFixed(4) : null,
           lastError: null,
           updatedAt: new Date(),
         })
         .where(eq(generationJobs.id, job.id))
         .returning();
-      return completed;
+
+      // US-017: pull the video (and thumbnail, if any) into our own Blob store now
+      // that the provider considers the job done. The generation itself already
+      // succeeded, so a storage failure doesn't revert status -- it's surfaced via
+      // lastError instead, and a manual retry can re-run storeCompletedVideo later.
+      const storeVideo = options.storeCompletedVideo ?? defaultStoreCompletedVideo;
+      try {
+        await storeVideo(db, completed.id, { errorLogStore: options.errorLogStore });
+        return completed;
+      } catch (error) {
+        const [flagged] = await db
+          .update(generationJobs)
+          .set({ lastError: `Video generated but storage failed: ${(error as Error).message}`, updatedAt: new Date() })
+          .where(eq(generationJobs.id, job.id))
+          .returning();
+        return flagged;
+      }
     }
 
     if (status === "failed") {

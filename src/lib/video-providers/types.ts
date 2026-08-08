@@ -19,6 +19,9 @@ export interface VideoResult {
   videoUrl: string;
   /** Actual cost reported by the provider, if it exposes one; falls back to our estimate otherwise. */
   actualCost?: number;
+  /** Provider-hosted thumbnail, when it generates one. Not every provider does -- US-017
+   * only stores a thumbnail alongside the video when this is present. */
+  thumbnailUrl?: string;
 }
 
 /**

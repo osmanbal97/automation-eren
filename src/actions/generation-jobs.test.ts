@@ -124,11 +124,51 @@ describe("pollGenerationJob", () => {
       getResult: vi.fn().mockResolvedValue({ videoUrl: "https://cdn/x.mp4", actualCost: 1.5 }),
     });
 
-    const updated = await pollGenerationJob(db, job.id, { resolveProvider: () => provider });
+    const updated = await pollGenerationJob(db, job.id, {
+      resolveProvider: () => provider,
+      storeCompletedVideo: vi.fn().mockResolvedValue(undefined),
+    });
 
     expect(updated.status).toBe("complete");
     expect(updated.resultVideoUrl).toBe("https://cdn/x.mp4");
     expect(updated.actualCost).toBe("1.5000");
+  });
+
+  it("stores the completed video via the injected hook and keeps status complete", async () => {
+    const { idea, provider: providerRow } = await seedGeneratableIdea(db);
+    const job = await seedGenerationJob(db, idea.id, providerRow.id, {
+      status: "processing",
+      externalJobId: "ext-1",
+    });
+    const provider = fakeProvider({
+      getStatus: vi.fn().mockResolvedValue("complete"),
+      getResult: vi.fn().mockResolvedValue({ videoUrl: "https://cdn/x.mp4" }),
+    });
+    const storeCompletedVideo = vi.fn().mockResolvedValue({ id: "video-1" });
+
+    const updated = await pollGenerationJob(db, job.id, { resolveProvider: () => provider, storeCompletedVideo });
+
+    expect(storeCompletedVideo).toHaveBeenCalledWith(db, job.id, expect.objectContaining({}));
+    expect(updated.status).toBe("complete");
+    expect(updated.lastError).toBeNull();
+  });
+
+  it("keeps status complete but records lastError when storage fails", async () => {
+    const { idea, provider: providerRow } = await seedGeneratableIdea(db);
+    const job = await seedGenerationJob(db, idea.id, providerRow.id, {
+      status: "processing",
+      externalJobId: "ext-1",
+    });
+    const provider = fakeProvider({
+      getStatus: vi.fn().mockResolvedValue("complete"),
+      getResult: vi.fn().mockResolvedValue({ videoUrl: "https://cdn/x.mp4" }),
+    });
+    const storeCompletedVideo = vi.fn().mockRejectedValue(new Error("blob upload exploded"));
+
+    const updated = await pollGenerationJob(db, job.id, { resolveProvider: () => provider, storeCompletedVideo });
+
+    expect(updated.status).toBe("complete");
+    expect(updated.lastError).toMatch(/blob upload exploded/);
   });
 
   it("marks the job failed when the provider reports failure", async () => {
@@ -259,7 +299,10 @@ describe("pollAllGenerationJobs", () => {
     expect(inFlight).toHaveLength(2);
 
     const provider = fakeProvider({ getStatus: vi.fn().mockResolvedValue("complete") });
-    const summary = await pollAllGenerationJobs(db, { resolveProvider: () => provider });
+    const summary = await pollAllGenerationJobs(db, {
+      resolveProvider: () => provider,
+      storeCompletedVideo: vi.fn().mockResolvedValue(undefined),
+    });
 
     expect(summary).toEqual({ polled: 2, complete: 2, failed: 0, stillRunning: 0 });
     expect(provider.getStatus).toHaveBeenCalledTimes(2);

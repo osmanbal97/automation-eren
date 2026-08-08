@@ -259,8 +259,8 @@
         "Tests pass"
       ],
       "priority": 17,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "storeCompletedVideo (src/actions/store-video.ts) downloads the provider result video (and thumbnail, when the provider reports one) via the shared callWithRetry seam, re-uploads both into Vercel Blob, and inserts the videos row; idempotent on generation_job_id so a duplicate poll tick returns the existing row instead of re-uploading. pollGenerationJob (US-016) now calls it automatically the moment a job goes complete -- a storage failure keeps status \"complete\" (generation itself succeeded) and records the failure on last_error instead, surfaced on the niche dashboard's Generation jobs panel regardless of status so it is never hidden behind a green badge. Schema: generation_jobs.thumbnail_source_url added (drizzle/0002_glamorous_psynapse.sql). Unit tests: store-video.test.ts (7 cases -- happy path, thumbnail, idempotency, not-found, wrong-status, download failure) plus generation-jobs.test.ts extended with storage call-through and storage-failure cases. tsc/eslint/vitest (234/234) and next build all green."
     },
     {
       "id": "US-018",

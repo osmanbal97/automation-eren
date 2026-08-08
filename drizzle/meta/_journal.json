@@ -15,6 +15,13 @@
       "when": 1786189653388,
       "tag": "0001_mean_shatterstar",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786202263137,
+      "tag": "0002_glamorous_psynapse",
+      "breakpoints": true
     }
   ]
 }

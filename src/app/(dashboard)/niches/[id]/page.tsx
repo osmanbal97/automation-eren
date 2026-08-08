@@ -187,7 +187,7 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
       <Panel className="mt-6">
         <PanelHeader
           title="Generation jobs"
-          description="Live status per approved idea's video generation, newest first. Failed jobs keep the provider's last error for debugging."
+          description="Live status per approved idea's video generation, newest first. Last error shown even on a completed job if storing its video failed."
         />
         <div className="px-6 py-6">
           {generationJobs.length > 0 ? (

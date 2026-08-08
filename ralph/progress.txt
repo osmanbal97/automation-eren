@@ -621,3 +621,33 @@ real OAuth exchange. That flow, plus wiring these adapters into the US-024
 publish worker, is what's left to actually close out US-021/022/023.
 
 Next: US-017 (store completed videos in Blob storage).
+
+[US-017] Store completed videos into our own Blob storage
+- src/actions/store-video.ts (new): storeCompletedVideo(db, jobId, options) downloads a
+  completed generation job's result video (and thumbnail, if the provider reports one) via
+  the shared callWithRetry seam (injectable fetchImpl/uploadFileImpl/sleep/random for tests,
+  same pattern as every other external client), re-uploads both into Vercel Blob, and inserts
+  the videos row (blobUrl, thumbnailBlobUrl, sizeBytes, durationSeconds pulled from the idea's
+  generation specs, caption/hashtags copied from the idea). Idempotent: if a videos row already
+  exists for generation_job_id, returns it without re-downloading/re-uploading -- guards against
+  duplicate poll ticks.
+- Schema: generation_jobs.thumbnail_source_url added (drizzle/0002_glamorous_psynapse.sql) to
+  hold the provider-hosted thumbnail URL before it's moved into Blob. VideoResult (types.ts)
+  gained an optional thumbnailUrl field.
+- src/actions/generation-jobs.ts: pollGenerationJob's "complete" branch now calls
+  storeCompletedVideo automatically right after recording the provider's result. The call is
+  injectable (GenerationQueueOptions.storeCompletedVideo) so generation-jobs.test.ts can assert
+  the call-through and failure-handling without touching the network/Blob layer directly. A
+  storage failure does NOT revert the job to failed -- the video generation itself succeeded,
+  so status stays "complete" and the failure is recorded on last_error
+  ("Video generated but storage failed: ..."), leaving room for a manual re-run later.
+- Dashboard: the niche page's Generation jobs panel now shows last_error next to the status
+  badge for ANY status, not just "failed" -- otherwise a storage failure on an otherwise-
+  complete job would render as a plain green "Complete" badge with no visible problem.
+- Tests: store-video.test.ts (7 cases: not-found, wrong status, missing result url, happy path
+  download+upload+row creation, thumbnail handling, idempotency, download failure propagation)
+  and two new generation-jobs.test.ts cases (storage call-through on success, lastError flagged
+  on storage failure while status stays complete). Also updated the two existing "complete"-path
+  tests in generation-jobs.test.ts to inject a stub storeCompletedVideo so they stay isolated
+  from the real network/Blob layer.
+- Gate: tsc --noEmit, eslint ., vitest run (234/234 passing), and next build all green.

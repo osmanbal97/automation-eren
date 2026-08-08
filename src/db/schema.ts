@@ -136,6 +136,8 @@ export const generationJobs = pgTable("generation_jobs", {
   attemptCount: integer("attempt_count").notNull().default(0),
   lastError: text("last_error"),
   resultVideoUrl: text("result_video_url"),
+  /** Provider-hosted thumbnail URL, when the provider's getResult() reports one (US-017). */
+  thumbnailSourceUrl: text("thumbnail_source_url"),
   actualCost: numeric("actual_cost", { precision: 10, scale: 4 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
