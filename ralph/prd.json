@@ -288,8 +288,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 19,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Scheduling list UI (web only -- no Telegram surface asked for in this story). src/actions/scheduling.ts: schedulePost(db, videoId, platforms[], scheduledAt, channel) requires the video be ready_to_schedule, then for every requested platform counts existing non-failed scheduled_posts for that niche+platform on the same UTC calendar day and compares against niches.targetPostsPerDay[platform] (already-existing per-niche per-platform config from US-009) -- if any platform is at/over its cap the whole batch is rejected with SchedulingCapExceededError before any row is inserted (no partial scheduling). On success inserts one scheduled_posts row per platform (default status 'scheduled'). Also added listScheduledPostsForVideo. Web: new /niches/[id]/schedule route lists ready_to_schedule videos with any slots already booked (platform + time + status badge) and a form (platform checkboxes + one datetime-local input) to book more, via a new schedule/actions.ts + ScheduleCard.tsx mirroring the videos-queue pattern. Niche page gained a 'Schedule' panel (ready-count + link). Video status stays ready_to_schedule after scheduling (no dedicated 'scheduled' video status exists), so a video can be booked onto additional platforms/times later -- the card just accumulates more scheduled_posts rows. Publish-time gating on platform connection status is intentionally NOT enforced here (that is US-020). Tests: 11 new scheduling.test.ts cases covering the happy path (single + multi-platform), not-found/invalid-state errors, empty-platforms guard, cap exceeded (single platform, zero-cap platform, and a full platform blocking an entire multi-platform batch), day-boundary correctness, failed posts not counting against the cap, and ordering. tsc/eslint/vitest (246/246, 25 files) and next build all green -- new route /niches/[id]/schedule compiles at 2.17 kB / 108 kB First Load JS."
     },
     {
       "id": "US-020",

@@ -76,20 +76,25 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
     throw error;
   }
 
-  const [providers, allWithConnections, pendingIdeas, generationJobRows, pendingVideos] = await Promise.all([
-    db.select().from(videoProviders).where(eq(videoProviders.enabled, true)).orderBy(asc(videoProviders.name)),
-    listNichesWithConnections(db),
-    db
-      .select({ id: ideas.id, title: ideas.title, estimatedCost: ideas.estimatedCost })
-      .from(ideas)
-      .where(and(eq(ideas.nicheId, id), eq(ideas.status, "pending_review")))
-      .orderBy(desc(ideas.createdAt)),
-    listGenerationJobsForNiche(db, id),
-    db
-      .select({ id: videos.id })
-      .from(videos)
-      .where(and(eq(videos.nicheId, id), eq(videos.status, "pending_review"))),
-  ]);
+  const [providers, allWithConnections, pendingIdeas, generationJobRows, pendingVideos, readyVideos] =
+    await Promise.all([
+      db.select().from(videoProviders).where(eq(videoProviders.enabled, true)).orderBy(asc(videoProviders.name)),
+      listNichesWithConnections(db),
+      db
+        .select({ id: ideas.id, title: ideas.title, estimatedCost: ideas.estimatedCost })
+        .from(ideas)
+        .where(and(eq(ideas.nicheId, id), eq(ideas.status, "pending_review")))
+        .orderBy(desc(ideas.createdAt)),
+      listGenerationJobsForNiche(db, id),
+      db
+        .select({ id: videos.id })
+        .from(videos)
+        .where(and(eq(videos.nicheId, id), eq(videos.status, "pending_review"))),
+      db
+        .select({ id: videos.id })
+        .from(videos)
+        .where(and(eq(videos.nicheId, id), eq(videos.status, "ready_to_schedule"))),
+    ]);
   const generationJobs = [...generationJobRows].reverse();
   const connections = allWithConnections.find((n) => n.id === id)?.connections ?? [];
   const connectionByPlatform = new Map(connections.map((connection) => [connection.platform, connection.status]));
@@ -232,6 +237,22 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
             </ButtonLink>
           ) : (
             <p className="text-sm text-fg-subtle">No videos pending review yet.</p>
+          )}
+        </div>
+      </Panel>
+
+      <Panel className="mt-6">
+        <PanelHeader
+          title="Schedule"
+          description="Book a ready-to-schedule video onto one or more platforms at a given time, capped by this niche's daily limits per platform."
+        />
+        <div className="px-6 py-6">
+          {readyVideos.length > 0 ? (
+            <ButtonLink href={`/niches/${id}/schedule`} variant="secondary" className="w-full py-4">
+              Schedule {readyVideos.length} ready video{readyVideos.length === 1 ? "" : "s"} →
+            </ButtonLink>
+          ) : (
+            <p className="text-sm text-fg-subtle">No videos ready to schedule yet.</p>
           )}
         </div>
       </Panel>

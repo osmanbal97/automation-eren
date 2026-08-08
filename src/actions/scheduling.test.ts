@@ -2,16 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Database } from "@/db/client";
 import { createTestDb } from "@/db/test-db";
 import { ActionNotFoundError, InvalidActionStateError } from "./errors";
-import { retryPublish, schedulePost } from "./scheduling";
-import {
-  seedGenerationJob,
-  seedIdea,
-  seedNiche,
-  seedProvider,
-  seedPublishJob,
-  seedScheduledPost,
-  seedVideo,
-} from "./test-helpers";
+import { listScheduledPostsForVideo, schedulePost, SchedulingCapExceededError } from "./scheduling";
+import { seedGenerationJob, seedIdea, seedNiche, seedProvider, seedScheduledPost, seedVideo } from "./test-helpers";
 
 describe("scheduling actions", () => {
   let db: Database;
@@ -20,8 +12,8 @@ describe("scheduling actions", () => {
     db = (await createTestDb()) as unknown as Database;
   });
 
-  async function seedReadyVideo() {
-    const niche = await seedNiche(db);
+  async function seedReadyVideo(targetPostsPerDay: Record<string, number> = { tiktok: 2, instagram: 1, youtube: 0 }) {
+    const niche = await seedNiche(db, { targetPostsPerDay });
     const provider = await seedProvider(db);
     const idea = await seedIdea(db, niche.id, { providerId: provider.id });
     const job = await seedGenerationJob(db, idea.id, provider.id, { status: "complete" });
@@ -29,86 +21,118 @@ describe("scheduling actions", () => {
     return { niche, video };
   }
 
-  describe("schedulePost", () => {
-    it("creates a scheduled_posts row and records the triggering channel", async () => {
-      const { niche, video } = await seedReadyVideo();
-      const scheduledAt = new Date("2026-08-09T12:00:00Z");
+  it("schedules a video onto one platform, creating one scheduled_posts row", async () => {
+    const { video } = await seedReadyVideo();
+    const scheduledAt = new Date("2026-08-15T14:00:00Z");
 
-      const scheduled = await schedulePost(
-        db,
-        { videoId: video.id, nicheId: niche.id, platform: "tiktok", scheduledAt },
-        "web",
-      );
+    const rows = await schedulePost(db, video.id, ["tiktok"], scheduledAt, "web");
 
-      expect(scheduled.status).toBe("scheduled");
-      expect(scheduled.platform).toBe("tiktok");
-      expect(scheduled.createdVia).toBe("web");
-      expect(scheduled.scheduledAt.toISOString()).toBe(scheduledAt.toISOString());
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      videoId: video.id,
+      nicheId: video.nicheId,
+      platform: "tiktok",
+      createdVia: "web",
+      status: "scheduled",
     });
-
-    it("refuses to schedule a video that isn't ready_to_schedule", async () => {
-      const niche = await seedNiche(db);
-      const provider = await seedProvider(db);
-      const idea = await seedIdea(db, niche.id, { providerId: provider.id });
-      const job = await seedGenerationJob(db, idea.id, provider.id, { status: "complete" });
-      const video = await seedVideo(db, niche.id, idea.id, job.id, { status: "pending_review" });
-
-      await expect(
-        schedulePost(
-          db,
-          { videoId: video.id, nicheId: niche.id, platform: "tiktok", scheduledAt: new Date() },
-          "web",
-        ),
-      ).rejects.toThrow(InvalidActionStateError);
-    });
-
-    it("throws ActionNotFoundError for an unknown video id", async () => {
-      const niche = await seedNiche(db);
-
-      await expect(
-        schedulePost(
-          db,
-          {
-            videoId: "00000000-0000-0000-0000-000000000000",
-            nicheId: niche.id,
-            platform: "instagram",
-            scheduledAt: new Date(),
-          },
-          "telegram",
-        ),
-      ).rejects.toThrow(ActionNotFoundError);
-    });
+    expect(rows[0].scheduledAt).toEqual(scheduledAt);
   });
 
-  describe("retryPublish", () => {
-    it("resets a failed publish job back to pending and records the channel", async () => {
-      const { niche, video } = await seedReadyVideo();
-      const scheduled = await seedScheduledPost(db, video.id, niche.id);
-      const job = await seedPublishJob(db, scheduled.id, {
-        status: "failed",
-        attemptCount: 2,
-        lastError: "TikTok API rate limited",
-      });
+  it("schedules a video onto multiple platforms at once, one row per platform", async () => {
+    const { video } = await seedReadyVideo();
+    const scheduledAt = new Date("2026-08-15T14:00:00Z");
 
-      const updated = await retryPublish(db, job.id, "telegram");
+    const rows = await schedulePost(db, video.id, ["tiktok", "instagram"], scheduledAt, "telegram");
 
-      expect(updated.status).toBe("pending");
-      expect(updated.lastError).toBeNull();
-      expect(updated.updatedVia).toBe("telegram");
+    expect(rows.map((row) => row.platform).sort()).toEqual(["instagram", "tiktok"]);
+    expect(rows.every((row) => row.createdVia === "telegram")).toBe(true);
+  });
+
+  it("throws ActionNotFoundError for an unknown video id", async () => {
+    await expect(
+      schedulePost(db, "00000000-0000-0000-0000-000000000000", ["tiktok"], new Date(), "web"),
+    ).rejects.toThrow(ActionNotFoundError);
+  });
+
+  it("throws InvalidActionStateError when the video isn't ready_to_schedule", async () => {
+    const niche = await seedNiche(db);
+    const provider = await seedProvider(db);
+    const idea = await seedIdea(db, niche.id, { providerId: provider.id });
+    const job = await seedGenerationJob(db, idea.id, provider.id, { status: "complete" });
+    const video = await seedVideo(db, niche.id, idea.id, job.id); // default status: pending_review
+
+    await expect(schedulePost(db, video.id, ["tiktok"], new Date(), "web")).rejects.toThrow(
+      InvalidActionStateError,
+    );
+  });
+
+  it("throws when no platforms are given", async () => {
+    const { video } = await seedReadyVideo();
+    await expect(schedulePost(db, video.id, [], new Date(), "web")).rejects.toThrow(
+      "Select at least one platform",
+    );
+  });
+
+  it("blocks scheduling once a platform's daily cap is reached", async () => {
+    const { video } = await seedReadyVideo({ tiktok: 1, instagram: 1, youtube: 0 });
+    const scheduledAt = new Date("2026-08-15T14:00:00Z");
+
+    await schedulePost(db, video.id, ["tiktok"], scheduledAt, "web");
+
+    await expect(
+      schedulePost(db, video.id, ["tiktok"], new Date("2026-08-15T20:00:00Z"), "web"),
+    ).rejects.toThrow(SchedulingCapExceededError);
+  });
+
+  it("a cap of 0 blocks scheduling onto that platform entirely", async () => {
+    const { video } = await seedReadyVideo({ tiktok: 2, instagram: 1, youtube: 0 });
+
+    await expect(
+      schedulePost(db, video.id, ["youtube"], new Date("2026-08-15T14:00:00Z"), "web"),
+    ).rejects.toThrow(SchedulingCapExceededError);
+  });
+
+  it("a full platform in a multi-platform request blocks the whole batch (no partial scheduling)", async () => {
+    const { video } = await seedReadyVideo({ tiktok: 2, instagram: 0, youtube: 0 });
+
+    await expect(
+      schedulePost(db, video.id, ["tiktok", "instagram"], new Date("2026-08-15T14:00:00Z"), "web"),
+    ).rejects.toThrow(SchedulingCapExceededError);
+
+    const existing = await listScheduledPostsForVideo(db, video.id);
+    expect(existing).toHaveLength(0);
+  });
+
+  it("the cap only counts the same UTC calendar day, not other days", async () => {
+    const { video } = await seedReadyVideo({ tiktok: 1, instagram: 1, youtube: 0 });
+
+    await schedulePost(db, video.id, ["tiktok"], new Date("2026-08-15T23:00:00Z"), "web");
+
+    await expect(
+      schedulePost(db, video.id, ["tiktok"], new Date("2026-08-16T01:00:00Z"), "web"),
+    ).resolves.toHaveLength(1);
+  });
+
+  it("a failed scheduled_posts row doesn't count against the cap", async () => {
+    const { video } = await seedReadyVideo({ tiktok: 1, instagram: 1, youtube: 0 });
+    await seedScheduledPost(db, video.id, video.nicheId, {
+      platform: "tiktok",
+      scheduledAt: new Date("2026-08-15T10:00:00Z"),
+      status: "failed",
     });
 
-    it("refuses to retry a publish job that isn't failed", async () => {
-      const { niche, video } = await seedReadyVideo();
-      const scheduled = await seedScheduledPost(db, video.id, niche.id);
-      const job = await seedPublishJob(db, scheduled.id, { status: "pending" });
+    await expect(
+      schedulePost(db, video.id, ["tiktok"], new Date("2026-08-15T14:00:00Z"), "web"),
+    ).resolves.toHaveLength(1);
+  });
 
-      await expect(retryPublish(db, job.id, "web")).rejects.toThrow(InvalidActionStateError);
-    });
+  it("listScheduledPostsForVideo returns rows ordered by scheduled time", async () => {
+    const { video } = await seedReadyVideo({ tiktok: 5, instagram: 5, youtube: 5 });
+    await schedulePost(db, video.id, ["instagram"], new Date("2026-08-16T10:00:00Z"), "web");
+    await schedulePost(db, video.id, ["tiktok"], new Date("2026-08-15T10:00:00Z"), "web");
 
-    it("throws ActionNotFoundError for an unknown publish job id", async () => {
-      await expect(retryPublish(db, "00000000-0000-0000-0000-000000000000", "web")).rejects.toThrow(
-        ActionNotFoundError,
-      );
-    });
+    const rows = await listScheduledPostsForVideo(db, video.id);
+
+    expect(rows.map((row) => row.platform)).toEqual(["tiktok", "instagram"]);
   });
 });

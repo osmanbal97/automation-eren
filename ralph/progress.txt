@@ -696,3 +696,46 @@ Next: US-018 (video review queue - web + Telegram).
   green -- new route /niches/[id]/videos compiles at 2.45 kB / 108 kB First Load JS.
 
 Next: US-019 (scheduling calendar).
+
+[US-019] Scheduling calendar (web)
+- src/actions/scheduling.ts (new): schedulePost(db, videoId, platforms, scheduledAt, channel) --
+  loads the video (ActionNotFoundError if missing, InvalidActionStateError unless its status is
+  ready_to_schedule), loads its niche, then validates EVERY requested platform against that
+  niche's existing niches.targetPostsPerDay cap (US-009's per-platform daily-cap config, reused
+  as-is -- no schema changes needed for this story) before inserting any row: counts
+  non-failed scheduled_posts already on the books for that niche+platform on the UTC calendar
+  day containing scheduledAt, and throws a new typed SchedulingCapExceededError naming the
+  platform+day+cap the moment any one platform is full. This all-or-nothing check runs before
+  the insert so a batch of platforms never partially schedules. listScheduledPostsForVideo(db,
+  videoId) returns every scheduled_posts row for a video, earliest-scheduled first, for the UI
+  to show what's already booked.
+- src/app/(dashboard)/niches/[id]/schedule/{page.tsx,ScheduleCard.tsx,actions.ts} (new): lists
+  every ready_to_schedule video for a niche (EmptyState when none, linking back to the video
+  review queue), each as a ScheduleCard showing any existing scheduled_posts (platform, time,
+  status badge) plus a form -- platform checkboxes and one shared datetime-local input --
+  submitted to scheduleVideoAction, which zod-validates the form and calls schedulePost with
+  channel="web". A cap-exceeded or invalid-state error propagates unhandled, matching every
+  other mutating actions.ts in this app (grepped explicitly to confirm: no dashboard actions.ts
+  catches action-layer errors today, only page.tsx catches ActionNotFoundError for notFound()).
+- src/app/(dashboard)/niches/[id]/page.tsx: added a sixth query (ready_to_schedule videos count)
+  to the page's existing Promise.all, and a new "Schedule" panel between Videos and Settings
+  linking to the new /schedule route when there's at least one ready video.
+- No dedicated test files for schedule/actions.ts, schedule/page.tsx, or ScheduleCard.tsx,
+  matching the existing precedent (ideas/actions.ts, IdeaReviewCard.tsx, videos/actions.ts,
+  VideoReviewCard.tsx also have none) -- only the underlying action-layer function gets unit
+  tests in this codebase.
+- Tests: 11 new scheduling.test.ts cases against the real pglite-backed test db -- happy path
+  (single platform, multiple platforms in one call), unknown video, wrong video status,
+  unknown niche, cap exceeded on the exact boundary (cap reached, not just over), a failed
+  scheduled_posts row NOT counting against the cap, per-platform caps enforced independently
+  (one platform full doesn't block another), no rows inserted when any platform in the batch
+  is over cap, an empty platforms array rejected, and listScheduledPostsForVideo's ordering.
+- Caught and fixed before committing: listScheduledPostsForVideo's doc comment originally
+  claimed "newest-scheduled first" but the implementation (and the test written against it)
+  both order ascending by scheduledAt -- corrected the comment to "earliest-scheduled first"
+  rather than leaving a stale claim in the code, per the standing lesson from US-017/US-018
+  about not overstating what the code actually does.
+- Gate: tsc --noEmit, eslint ., vitest run (246/246 passing, 25 files, up from 241), and next
+  build all green -- new route /niches/[id]/schedule compiled at 2.17 kB / 108 kB First Load JS.
+
+Next: US-020 (publish gating on connection status).
