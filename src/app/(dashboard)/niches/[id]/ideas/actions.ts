@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { approveIdeaAndEnqueue, regenerateVideo } from "@/actions/generation-jobs";
 import {
-  approveIdea,
   editIdeaCaption,
   editIdeaPrompt,
   rejectIdea,
@@ -50,10 +50,31 @@ const ideaIdFormSchema = z.object({
   nicheId: z.string().uuid(),
 });
 
+/** Approves an idea and queues its generation job in one step (US-016). A queueing
+ * failure is surfaced on the job row rather than undoing the approval. */
 export async function approveIdeaAction(formData: FormData) {
   const { ideaId, nicheId } = ideaIdFormSchema.parse(Object.fromEntries(formData));
   const db = getDb();
-  await approveIdea(db, ideaId, "web");
+  await approveIdeaAndEnqueue(db, ideaId, "web", {
+    errorLogStore: createDrizzleErrorLogStore(db),
+  });
+  revalidatePath(`/niches/${nicheId}/ideas`);
+  revalidatePath(`/niches/${nicheId}`);
+}
+
+const regenerateFormSchema = z.object({
+  ideaId: z.string().uuid(),
+  nicheId: z.string().uuid(),
+});
+
+/** Re-submits a fresh generation job for an idea using its current (edited or
+ * optimizer-rewritten) prompt. */
+export async function regenerateVideoAction(formData: FormData) {
+  const { ideaId, nicheId } = regenerateFormSchema.parse(Object.fromEntries(formData));
+  const db = getDb();
+  await regenerateVideo(db, ideaId, "web", {
+    errorLogStore: createDrizzleErrorLogStore(db),
+  });
   revalidatePath(`/niches/${nicheId}/ideas`);
   revalidatePath(`/niches/${nicheId}`);
 }

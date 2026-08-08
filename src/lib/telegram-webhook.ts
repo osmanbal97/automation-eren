@@ -1,7 +1,8 @@
 import { eq } from "drizzle-orm";
 import type { Database } from "@/db/client";
 import { clearPendingSession, getPendingSession, setPendingSession } from "@/actions/bot-sessions";
-import { approveIdea, editIdeaCaption, editIdeaPrompt, rejectIdea, setIdeaProvider } from "@/actions/ideas";
+import { approveIdeaAndEnqueue } from "@/actions/generation-jobs";
+import { editIdeaCaption, editIdeaPrompt, rejectIdea, setIdeaProvider } from "@/actions/ideas";
 import { optimizeIdeaPrompt } from "@/actions/prompt-optimizer";
 import { approveVideo, editVideoCaption, rejectVideo } from "@/actions/videos";
 import { ideas, videoProviders } from "@/db/schema";
@@ -219,11 +220,25 @@ async function processCallbackQuery(
     return;
   }
 
-  if (action === "approve" || action === "reject") {
+  if (action === "approve") {
     try {
-      const updated = action === "approve" ? await approveIdea(db, id, "telegram") : await rejectIdea(db, id, "telegram");
-      const label = action === "approve" ? "✅ Approved" : "❌ Rejected";
-      await telegram.editMessageText(chatIdStr, messageId, `${label}\n\n${updated.title}`, {
+      const { idea, queueError } = await approveIdeaAndEnqueue(db, id, "telegram", {
+        errorLogStore: createDrizzleErrorLogStore(db),
+      });
+      const status = queueError ? `\n\n⚠️ Generation didn't start: ${queueError}` : "\n\n🎬 Generation queued.";
+      await telegram.editMessageText(chatIdStr, messageId, `✅ Approved\n\n${idea.title}${status}`, {
+        replyMarkup: { inline_keyboard: [] },
+      });
+    } catch (error) {
+      await telegram.sendMessage(chatIdStr, `Couldn't do that: ${(error as Error).message}`);
+    }
+    return;
+  }
+
+  if (action === "reject") {
+    try {
+      const updated = await rejectIdea(db, id, "telegram");
+      await telegram.editMessageText(chatIdStr, messageId, `❌ Rejected\n\n${updated.title}`, {
         replyMarkup: { inline_keyboard: [] },
       });
     } catch (error) {

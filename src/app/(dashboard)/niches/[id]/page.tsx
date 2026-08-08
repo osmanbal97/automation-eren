@@ -1,6 +1,7 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { listGenerationJobsForNiche } from "@/actions/generation-jobs";
 import {
   getNiche,
   listNichesWithConnections,
@@ -41,6 +42,20 @@ const STATUS_TONES: Record<string, BadgeTone> = {
   disconnected: "idle",
 };
 
+const JOB_STATUS_TONES: Record<string, BadgeTone> = {
+  queued: "idle",
+  processing: "pending",
+  complete: "success",
+  failed: "danger",
+};
+
+const JOB_STATUS_LABELS: Record<string, string> = {
+  queued: "Queued",
+  processing: "Generating…",
+  complete: "Complete",
+  failed: "Failed",
+};
+
 function statusLabel(platform: (typeof PLATFORMS)[number], status: string) {
   if (status === "active") return "Active";
   if (status === "pending_review") return PENDING_LABELS[platform];
@@ -61,7 +76,7 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
     throw error;
   }
 
-  const [providers, allWithConnections, pendingIdeas] = await Promise.all([
+  const [providers, allWithConnections, pendingIdeas, generationJobRows] = await Promise.all([
     db.select().from(videoProviders).where(eq(videoProviders.enabled, true)).orderBy(asc(videoProviders.name)),
     listNichesWithConnections(db),
     db
@@ -69,7 +84,9 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
       .from(ideas)
       .where(and(eq(ideas.nicheId, id), eq(ideas.status, "pending_review")))
       .orderBy(desc(ideas.createdAt)),
+    listGenerationJobsForNiche(db, id),
   ]);
+  const generationJobs = [...generationJobRows].reverse();
   const connections = allWithConnections.find((n) => n.id === id)?.connections ?? [];
   const connectionByPlatform = new Map(connections.map((connection) => [connection.platform, connection.status]));
 
@@ -163,6 +180,38 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
             </ButtonLink>
           ) : (
             <p className="text-sm text-fg-subtle">No ideas pending review yet.</p>
+          )}
+        </div>
+      </Panel>
+
+      <Panel className="mt-6">
+        <PanelHeader
+          title="Generation jobs"
+          description="Live status per approved idea's video generation, newest first. Failed jobs keep the provider's last error for debugging."
+        />
+        <div className="px-6 py-6">
+          {generationJobs.length > 0 ? (
+            <ul className="space-y-3">
+              {generationJobs.map(({ job, ideaTitle, providerName }) => (
+                <li
+                  key={job.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-ink-900/50 px-4 py-3.5"
+                >
+                  <div>
+                    <div className="text-sm font-medium">{ideaTitle}</div>
+                    <div className="mt-1 text-xs text-fg-subtle">
+                      {providerName} · attempt {job.attemptCount}
+                      {job.status === "failed" && job.lastError ? ` · ${job.lastError}` : ""}
+                    </div>
+                  </div>
+                  <Badge tone={JOB_STATUS_TONES[job.status] ?? "idle"}>
+                    {JOB_STATUS_LABELS[job.status] ?? job.status}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-fg-subtle">No generation jobs yet — approve an idea to queue one.</p>
           )}
         </div>
       </Panel>

@@ -548,3 +548,55 @@ results as pending_review ideas.
   pre-existing path), not attempted again the same way.
 - Next: resume the real backlog in priority order starting at US-016
   (generation queue and tracking).
+
+[US-016] Generation queue and tracking -- done.
+- src/lib/crypto.ts + src/lib/platforms/types.ts landed first as shared
+  foundation for US-021/022/023 (see below), ahead of US-016 itself.
+- src/actions/generation-jobs.ts: enqueueGenerationJob (inserts the job row
+  before calling the provider so a submit failure stays visible as a failed
+  job rather than vanishing; failure marks the job failed but doesn't throw,
+  so approval never 500s on a vendor outage), pollGenerationJob (advances one
+  in-flight job via the US-007 adapter, capped retries via attemptCount vs
+  maxAttempts, marks failed once exhausted), listInFlightGenerationJobs /
+  pollAllGenerationJobs (sequential on purpose -- paid third-party API, small
+  batch), regenerateVideo (re-submits a fresh job for an idea's current
+  prompt, keeps the old job row as history, records the channel), and
+  approveIdeaAndEnqueue (approve + enqueue in one step shared by both
+  channels; a queueing failure never undoes the approval). 20 tests.
+- src/app/api/cron/poll-generation/route.ts: CRON_SECRET-gated poller,
+  awaits pollAllGenerationJobs synchronously (unlike the Telegram webhook)
+  so failures show up in function logs.
+- Web: niches/[id]/ideas/actions.ts's approveIdeaAction now calls
+  approveIdeaAndEnqueue; a new regenerateVideoAction added for later UI use.
+  niches/[id]/page.tsx gained a "Generation jobs" panel listing every job for
+  the niche (idea title, provider, attempt count, status badge, last error
+  when failed) -- the "dashboard shows live status" acceptance criterion.
+- Telegram: the idea:approve callback now calls approveIdeaAndEnqueue too, so
+  both channels share the same approve-and-queue behavior; the card message
+  reports whether generation was actually queued or hit a queueError.
+- Verification: tsc --noEmit, eslint ., vitest run (177/177) and a next
+  build all clean. No live dev-browser click-through (no dev-browser skill
+  in this environment) -- same lightened-policy tradeoff as prior stories,
+  full manual E2E deferred to the next phase boundary (after US-017).
+
+[PARALLELIZATION] US-021/022/023 (TikTok/Instagram/YouTube adapters) --
+done concurrently via three Agent calls with isolation:"worktree", after
+first confirming (via two cheap throwaway probe agents) that this
+mechanism actually relocates the agent into its own worktree/branch --
+unlike the earlier abandoned attempt of pointing an agent at a manually
+pre-created worktree, which silently pinned it to the parent's cwd. The
+probes also caught a second trap: an agent worktree branches from this
+repo's local `main` (stale, pre-dates US-006), not from this branch's
+HEAD, and writing worktree.baseRef:"head" to either the worktree's or the
+shared checkout's .claude/settings.json didn't fix it (the latter is
+sandbox-blocked from this worktree anyway). Fix: every agent prompt's
+mandatory STEP 0 is `git reset --hard worktree-us-006-provider-registry`
+plus a verification that the expected commit is HEAD before doing
+anything else. All three came back clean: TikTok (18 tests), Instagram
+(12 tests), YouTube (18 tests), each implementing PlatformAdapter against
+src/lib/platforms/types.ts with injectable fetchImpl/retry tuning mirroring
+HiggsfieldProvider, no DB writes, no shared files touched. Their branches
+still need merging into this line and a combined gate re-run.
+
+Next: US-017 (store completed videos in Blob storage), then merge in the
+three adapter branches, then continue the backlog (US-018..US-026).
