@@ -97,3 +97,26 @@ implemented directly in-session (Claude Code), in priority order, with prd.json'
   - tsc --noEmit clean, eslint . clean, vitest run 45/45 passing.
 
 Phase 0 (Foundation) complete: US-001 through US-005 all passing.
+
+[US-006] DONE — Provider registry.
+  - src/db/seed-providers.ts: idempotent seed (onConflictDoUpdate on adapter_key)
+    for Higgsfield (per_second, $0.20, enabled) and Nano Banana / Omni
+    (per_generation / per_credit, disabled placeholders). `npm run
+    db:seed:providers` runs it via tsx.
+  - /settings/providers: server component listing all video_providers with
+    pricing-model label, unit price, and Enabled/Disabled badge; empty-state
+    hint to run the seed script.
+  - Bug found + fixed while verifying in a fresh worktree checkout:
+    .gitignore excluded /drizzle/meta (the migration journal drizzle-orm's
+    migrate() needs), so migrations would silently fail to apply on any
+    fresh clone/CI run/worktree. Un-ignored and committed drizzle/meta.
+  - No dev-browser skill available, so verified manually end-to-end: temp
+    local Postgres 17 -> drizzle-kit migrate -> seed script -> next build/
+    next start -> logged in through the real password gate via curl ->
+    fetched /settings/providers and confirmed correct HTML for all three
+    providers -> tore the temp instance down.
+  - tsc --noEmit clean, eslint . clean, vitest run 45/45 passing.
+
+Now working from a dedicated worktree (.claude/worktrees/us-006-provider-registry,
+branch worktree-us-006-provider-registry) to move through the remaining backlog
+faster, per operator request.

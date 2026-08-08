@@ -90,8 +90,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 6,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "video_providers table (from US-002) already had name/adapter_key/pricing_model/unit_price/default_specs/enabled. Added src/db/seed-providers.ts: idempotent upsert (onConflictDoUpdate on adapter_key) seeding Higgsfield (per_second, $0.20, enabled) and Nano Banana / Omni (per_generation / per_credit, disabled placeholders) with sane default_specs. Wired as `npm run db:seed:providers` (tsx). Added /settings/providers server component listing all providers with a PRICING_LABELS-mapped pricing model, unit price, and an Enabled/Disabled badge, with an empty-state hint to run the seed script. Found and fixed a real bug while verifying in a fresh worktree checkout: .gitignore excluded /drizzle/meta, which holds the migration journal (_journal.json + snapshots) that drizzle-orm's migrate() requires -- fresh clones/CI/worktrees would fail to migrate. Un-ignored and committed drizzle/meta. No dev-browser skill is available in this environment, so verified end-to-end manually: spun up a temp local Postgres 17 instance, ran drizzle-kit migrate + the seed script against it, built and started the app (next build/next start), logged in through the real password gate via curl, and fetched /settings/providers -- confirmed the rendered HTML shows Higgsfield/Nano Banana/Omni with correct pricing labels, unit prices, and enabled state, then tore the temp instance down. tsc --noEmit clean, eslint . clean, vitest run 45/45 passing (this run also caught and fixed the drizzle/meta gitignore bug via the same fresh-checkout test failure)."
     },
     {
       "id": "US-007",
