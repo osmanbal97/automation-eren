@@ -198,3 +198,39 @@ faster, per operator request.
     hand); that glue code is thin and sits on top of src/actions/niches.ts,
     which is fully unit tested.
   - tsc --noEmit clean, eslint . clean, vitest run 74/74 passing.
+
+[US-010] DONE — Platform connection status per niche.
+  - src/actions/platform-connections.ts: setConnectionStatus (upsert via
+    onConflictDoUpdate on the niche_id+platform unique constraint) and
+    getConnectionsForNiche. No channel column, same rationale as niches.ts
+    (never Telegram-triggered).
+  - src/app/niches/actions.ts: updateConnectionStatusAction, a zod-validated
+    "use server" function calling setConnectionStatus then revalidating both
+    /niches and /niches/[id].
+  - src/app/niches/[id]/page.tsx: Platform connections section rendered as a
+    state machine of contextual buttons per platform -- disconnected shows
+    "Mark as submitted for review"; pending_review shows "Mark as active"
+    (primary) + "Reset"; active shows "Disconnect". Status pills use
+    per-platform pending copy matching the PRD wording ("Waiting on TikTok
+    audit" / "Waiting on Meta app review" / "Waiting on Google OAuth
+    verification"), plus explicit copy that this is a manual flag, not a
+    live OAuth check.
+  - 5 new unit tests (src/actions/platform-connections.test.ts) against the
+    real pglite-backed test db.
+  - Manual verification went a step further than US-009: after confirming
+    the zero-connection-rows default-disconnected render via temp Postgres +
+    next build/start + curl login (same pattern as US-006/US-009, this time
+    starting Postgres on TCP loopback from the outset to avoid the
+    unix-socket drizzle-kit migrate bug found during US-009), actually
+    replicated Next.js's Server Action no-JS wire protocol by hand -- a
+    multipart POST carrying the hidden $ACTION_ID_<hash> field alongside the
+    real nicheId/platform/status fields -- to drive
+    updateConnectionStatusAction for real over HTTP. Ran tiktok through the
+    full disconnected -> pending_review -> active -> disconnected cycle,
+    confirming each transition both via a direct psql SELECT against
+    platform_connections and via re-fetching the page and checking the
+    correct pill color/label and contextual button set rendered; also
+    confirmed instagram's distinct pending copy ("Waiting on Meta app
+    review"). Tore down the temp Postgres instance and Next.js server
+    afterward.
+  - tsc --noEmit clean, eslint . clean, vitest run 79/79 passing.

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createNiche, deleteNiche, updateNiche } from "@/actions/niches";
+import { setConnectionStatus } from "@/actions/platform-connections";
 import { getDb } from "@/db/client";
 
 const nicheFormSchema = z.object({
@@ -57,4 +58,18 @@ export async function deleteNicheAction(nicheId: string) {
   await deleteNiche(db, nicheId);
   revalidatePath("/niches");
   redirect("/niches");
+}
+
+const connectionStatusFormSchema = z.object({
+  nicheId: z.string().uuid(),
+  platform: z.enum(["tiktok", "instagram", "youtube"]),
+  status: z.enum(["disconnected", "pending_review", "active"]),
+});
+
+export async function updateConnectionStatusAction(formData: FormData) {
+  const { nicheId, platform, status } = connectionStatusFormSchema.parse(Object.fromEntries(formData));
+  const db = getDb();
+  await setConnectionStatus(db, nicheId, platform, status);
+  revalidatePath(`/niches/${nicheId}`);
+  revalidatePath("/niches");
 }
