@@ -3,9 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { generateIdeas } from "@/actions/generate-ideas";
 import { createNiche, deleteNiche, updateNiche } from "@/actions/niches";
 import { setConnectionStatus } from "@/actions/platform-connections";
+import { createAnthropicClaudeClient } from "@/lib/claude-client";
 import { getDb } from "@/db/client";
+import { createDrizzleErrorLogStore } from "@/lib/error-log";
 
 const nicheFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -72,4 +75,17 @@ export async function updateConnectionStatusAction(formData: FormData) {
   await setConnectionStatus(db, nicheId, platform, status);
   revalidatePath(`/niches/${nicheId}`);
   revalidatePath("/niches");
+}
+
+/** Generates 5 fresh ideas for a niche via Claude. Ideas land as pending_review;
+ * reviewing/approving/rejecting them is US-012's job, not this action's. */
+export async function generateIdeasAction(nicheId: string) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error("ANTHROPIC_API_KEY is not set");
+  }
+  const db = getDb();
+  const claudeClient = createAnthropicClaudeClient({ apiKey });
+  await generateIdeas(db, nicheId, claudeClient, 5, { errorLogStore: createDrizzleErrorLogStore(db) });
+  revalidatePath(`/niches/${nicheId}`);
 }

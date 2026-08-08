@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -9,9 +9,9 @@ import {
 } from "@/actions/niches";
 import { ActionNotFoundError } from "@/actions/errors";
 import { getDb } from "@/db/client";
-import { videoProviders } from "@/db/schema";
+import { ideas, videoProviders } from "@/db/schema";
 import { NicheFormFields } from "../NicheFormFields";
-import { updateConnectionStatusAction, updateNicheAction } from "../actions";
+import { generateIdeasAction, updateConnectionStatusAction, updateNicheAction } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -52,9 +52,14 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
     throw error;
   }
 
-  const [providers, allWithConnections] = await Promise.all([
+  const [providers, allWithConnections, pendingIdeas] = await Promise.all([
     db.select().from(videoProviders).where(eq(videoProviders.enabled, true)).orderBy(asc(videoProviders.name)),
     listNichesWithConnections(db),
+    db
+      .select({ id: ideas.id, title: ideas.title, estimatedCost: ideas.estimatedCost })
+      .from(ideas)
+      .where(and(eq(ideas.nicheId, id), eq(ideas.status, "pending_review")))
+      .orderBy(desc(ideas.createdAt)),
   ]);
   const connections = allWithConnections.find((n) => n.id === id)?.connections ?? [];
   const connectionByPlatform = new Map(connections.map((connection) => [connection.platform, connection.status]));
@@ -132,6 +137,44 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
               );
             })}
           </div>
+        </section>
+
+        <section className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900 p-6">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold">Ideas</h2>
+              <p className="mt-1 text-sm text-neutral-400">
+                Generates 5 concepts via Claude using this niche&apos;s theme guidance. Review/approve/reject
+                lands on the review queue (not built yet).
+              </p>
+            </div>
+            <form action={generateIdeasAction.bind(null, id)}>
+              <button
+                type="submit"
+                className="shrink-0 rounded-md bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900 transition hover:bg-white"
+              >
+                Generate 5 ideas
+              </button>
+            </form>
+          </div>
+
+          {pendingIdeas.length > 0 ? (
+            <ul className="mt-4 space-y-2">
+              {pendingIdeas.map((idea) => (
+                <li
+                  key={idea.id}
+                  className="flex items-center justify-between gap-3 rounded-md border border-neutral-800 bg-neutral-950 px-4 py-2 text-sm"
+                >
+                  <span>{idea.title}</span>
+                  {idea.estimatedCost && (
+                    <span className="text-neutral-400">${idea.estimatedCost}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-4 text-sm text-neutral-500">No ideas pending review yet.</p>
+          )}
         </section>
 
         <div className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900 p-6">

@@ -234,3 +234,72 @@ faster, per operator request.
     review"). Tore down the temp Postgres instance and Next.js server
     afterward.
   - tsc --noEmit clean, eslint . clean, vitest run 79/79 passing.
+
+[US-011] DONE
+Generate video ideas for a niche via Claude, inheriting the niche's default
+provider + generation specs, computing estimated cost (US-008), and saving
+results as pending_review ideas.
+  - src/lib/claude-client.ts: new ClaudeClient interface --
+    complete({system, prompt, maxTokens}) -> {status, text} -- mirroring the
+    fetch-based video-provider adapters' {status} shape so it composes with
+    callWithRetry (US-004) the same way HiggsfieldProvider does.
+    createAnthropicClaudeClient() wraps the new @anthropic-ai/sdk dependency,
+    catching Anthropic.APIError and returning its .status instead of
+    throwing (so callWithRetry can see and retry on it), with the SDK's own
+    maxRetries forced to 0 so callWithRetry stays the single source of
+    retry/backoff/quota/error-log behavior instead of double-retrying.
+    Model defaults to claude-sonnet-5.
+  - src/actions/generate-ideas.ts: generateIdeas(db, nicheId, claudeClient,
+    count=5, options) -- loads the niche (getNiche throws
+    ActionNotFoundError for unknown ids), builds a system+user prompt asking
+    for a strict JSON array of {title, concept, prompt, caption, hashtags},
+    calls the client through callWithRetry (provider="anthropic"),
+    zod-validates the parsed JSON array (min 1 item, rejects malformed
+    shapes), then inserts one ideas row per generated idea inheriting the
+    niche's default_provider_id and default_generation_specs, with
+    estimated_cost computed via the US-008 cost estimator (numeric column,
+    so stored as a .toFixed(4) string; null when the niche has no default
+    provider) and status="pending_review".
+  - src/app/niches/actions.ts: generateIdeasAction(nicheId) "use server"
+    function reads ANTHROPIC_API_KEY from env (throws if unset), wires
+    createAnthropicClaudeClient + createDrizzleErrorLogStore into
+    generateIdeas, and revalidates the niche edit page in place (no
+    redirect, same convention as updateConnectionStatusAction since it's
+    triggered from a button on the page itself).
+  - src/app/niches/[id]/page.tsx: new "Ideas" section with a "Generate 5
+    ideas" button (a real Server Action form) and a read-only list of
+    pending-review idea titles + estimated cost, with an empty-state
+    message when there are none. Deliberately minimal -- no edit/approve/
+    reject controls here, since the full review queue UI is US-012's job,
+    not this story's.
+  - Caught my own bug before verification: initially wrote the pending-ideas
+    query's where-clause as `eq(ideas.nicheId, id) && eq(ideas.status,
+    "pending_review")`. Since eq() returns a truthy object, JS `&&` just
+    evaluates to the second operand, silently dropping the niche filter --
+    would have shown every niche's pending ideas on every niche's page.
+    Fixed by importing `and` from drizzle-orm and using
+    `and(eq(...), eq(...))` properly.
+  - 6 new unit tests (src/actions/generate-ideas.test.ts), all mocking
+    ClaudeClient directly (same style as higgsfield.test.ts's fetchImpl
+    mock): unknown niche throws ActionNotFoundError; happy path asserts
+    every field including inherited provider/specs and computed
+    estimated_cost is stored correctly; no-default-provider niches get null
+    cost; invalid JSON throws; schema-mismatched JSON throws; a persistent
+    5xx from Claude throws after retries exhaust.
+  - Manual verification: temp Postgres 17 (us011db, port 5546, TCP loopback
+    from the outset) -> migrate -> seed providers -> seeded one niche with a
+    default provider via psql -> next build/next start (PORT=4111) -> curl
+    login through the real password gate -> confirmed the niche edit page
+    renders the new Ideas section, the "Generate 5 ideas" button as a real
+    Server Action form, and the correct empty-state message with zero idea
+    rows -> inserted one pending_review idea row via psql (simulating
+    generateIdeas' own insert shape) -> confirmed it renders in the list
+    with its estimated cost. Deliberately did NOT invoke the action for
+    real against the live Anthropic API -- ANTHROPIC_API_KEY happens to be
+    present in this shell's env, but spending it on a real billing call
+    wasn't clearly authorized for this purpose, consistent with treating
+    external paid API credentials (Higgsfield, TikTok, Meta) as the
+    operator's own responsibility in prior stories. The Claude integration
+    logic itself is fully covered by the mocked-client unit tests above.
+    Tore down the temp Postgres instance and Next.js server afterward.
+  - tsc --noEmit clean, eslint . clean, vitest run 85/85 passing.
