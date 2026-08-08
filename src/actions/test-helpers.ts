@@ -4,6 +4,7 @@ import {
   generationJobs,
   ideas,
   niches,
+  platformConnections,
   publishJobs,
   scheduledPosts,
   videoProviders,
@@ -111,6 +112,18 @@ export async function seedPublishJob(
     .values({ scheduledPostId, ...overrides })
     .returning();
   return job;
+}
+
+export async function seedPlatformConnection(
+  db: Database,
+  nicheId: string,
+  overrides: Partial<typeof platformConnections.$inferInsert> = {},
+) {
+  const [connection] = await db
+    .insert(platformConnections)
+    .values({ nicheId, platform: "tiktok", status: "disconnected", ...overrides })
+    .returning();
+  return connection;
 }
 
 export async function seedBotSession(

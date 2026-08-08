@@ -739,3 +739,43 @@ Next: US-019 (scheduling calendar).
   build all green -- new route /niches/[id]/schedule compiled at 2.17 kB / 108 kB First Load JS.
 
 Next: US-020 (publish gating on connection status).
+
+[US-020] Publish gating on connection status
+- src/actions/publish.ts (new): publishScheduledPost(db, scheduledPostId, adapters, channel)
+  -- one publish attempt for one scheduled_posts row. Loads the post, then the
+  platform_connections row for its niche+platform; if it's missing or not status="active",
+  marks the post awaiting_platform_approval and returns WITHOUT ever calling an adapter --
+  the exact PRD requirement. Only when active does it decrypt the connection's tokens
+  (src/lib/crypto.ts, from the earlier crypto/OAuth-prep work) and call the matching
+  US-021/022/023 adapter's publish(). Success records a publish_jobs "success" row and marks
+  the post "published"; a generic adapter failure records a "failed" publish_jobs row but
+  leaves the post status="scheduled" (eligible for a future retry) rather than marking it
+  permanently failed; a PlatformNotApprovedError (the account genuinely hasn't cleared review,
+  a case types.ts already anticipated for this exact story) parks it as
+  awaiting_platform_approval instead, since retrying that immediately would just fail the same
+  way again.
+- Deliberately left out of this function, matching how US-020 and US-024 (publish worker,
+  still upcoming) are split in the PRD: selecting which due posts to attempt, row-locking
+  across overlapping cron runs, and the retry-count/backoff decision that finally marks a post
+  permanently "failed" after enough attempts. This function only performs a single attempt and
+  returns a typed outcome ({awaiting_platform_approval} | {published, platformPostId} |
+  {retry_scheduled, error}) for that future worker to act on.
+- Added seedPlatformConnection to test-helpers.ts (the only table among those touched by this
+  story that didn't already have a seed helper).
+- Tests: 7 new publish.test.ts cases against the real pglite-backed test db with a fake
+  PlatformAdapter (mirroring how generation-jobs.test.ts fakes a VideoProvider) -- unknown
+  scheduled post, disconnected gate (no adapter call), pending_review gate (no adapter call),
+  active + success, active + generic failure (retry_scheduled, post stays "scheduled"), active
+  + PlatformNotApprovedError (parked, not retried), and no-adapter-registered-for-platform.
+- Gate: tsc --noEmit, eslint ., vitest run (253/253 passing, 26 files, up from 246), and next
+  build all green. No UI touched this story, so no new route in the build output.
+
+Next: priority order says US-021/022/023 (finish their OAuth connect flows) before US-024
+(publish worker/cron). Flagging for the operator rather than assuming: the connect-flow code
+itself (authorize redirect, callback route, token exchange+encryption via crypto.ts) can be
+built and unit-tested now without live TikTok/Meta/Google app credentials, same as every other
+env-gated integration in this project -- but it's a materially bigger three-platform chunk of
+work than a typical single story, and won't be end-to-end testable for real until those
+developer apps exist (the operator's own responsibility, unchanged from earlier notes).
+US-024 itself has no such dependency -- it can be fully built and unit-tested against fake
+adapters on top of publishScheduledPost regardless of OAuth status.

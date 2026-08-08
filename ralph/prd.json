@@ -304,8 +304,8 @@
         "Tests pass"
       ],
       "priority": 20,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "src/actions/publish.ts's publishScheduledPost(db, scheduledPostId, adapters, channel) implements the gating: loads the scheduled post and its niche+platform's platform_connections row, and if that connection is missing or not status='active' it marks the post awaiting_platform_approval and returns without ever calling an adapter -- covered explicitly by two tests (disconnected, pending_review). When active it decrypts the connection's tokens (src/lib/crypto.ts) and calls the matching US-021/022/023 adapter's publish(), covered by a success test (marks published, records a publish_jobs success row) and two failure tests (a generic error leaves the post status='scheduled' for a future retry rather than marking it permanently failed, recording one failed publish_jobs row; a PlatformNotApprovedError from the adapter parks it as awaiting_platform_approval instead of scheduling a pointless retry). 7 tests total, all passing. Deliberately out of scope, left for US-024: selecting which due posts to attempt, concurrency-safe row locking across overlapping cron runs, and the retry-count/backoff logic that decides when a post should finally be marked permanently 'failed' -- this function only performs one attempt and returns a typed outcome the future worker will act on."
     },
     {
       "id": "US-021",
