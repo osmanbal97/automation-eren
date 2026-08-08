@@ -106,8 +106,8 @@
         "Tests pass"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "src/lib/video-providers/types.ts: GenerationSpecs, VideoJobStatus (mirrors generation_job_status enum), VideoResult, VideoProvider interface (submit/getStatus/getResult), typed ProviderApiError. src/lib/video-providers/higgsfield.ts: HiggsfieldProvider implements VideoProvider via callWithRetry (US-004); normalizeStatus() maps raw API status strings onto our 4-value enum (documented as an assumption to revisit once we have a live account/real API docs -- no Higgsfield API access at implementation time), throws on unrecognized statuses; retry tuning (maxAttempts/baseDelayMs/sleep/random) is constructor-injectable for deterministic tests. src/lib/video-providers/registry.ts: getVideoProvider(adapterKey) maps video_providers.adapter_key to a live instance; 'higgsfield' resolves to HiggsfieldProvider (reads HIGGSFIELD_API_KEY from env, throws a clear error if missing); 'nano_banana'/'omni' throw a typed ProviderNotImplementedError (distinct from UnknownProviderError for a genuinely unregistered key) since they're disabled placeholders per US-006. 15 unit tests (higgsfield.test.ts: submit request shape, all 4 status mappings, getResult happy path, getResult-before-video_url error, 5xx retry-then-exhaust via injected fast sleep, non-retryable 4xx throws ProviderApiError without retrying, unrecognized status throws; registry.test.ts: resolves higgsfield, missing-API-key error, not-implemented placeholders, unknown key) against a mocked fetch. tsc --noEmit clean, eslint . clean, vitest run 60/60 passing."
     },
     {
       "id": "US-008",

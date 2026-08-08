@@ -120,3 +120,24 @@ Phase 0 (Foundation) complete: US-001 through US-005 all passing.
 Now working from a dedicated worktree (.claude/worktrees/us-006-provider-registry,
 branch worktree-us-006-provider-registry) to move through the remaining backlog
 faster, per operator request.
+
+[US-007] DONE — VideoProvider adapter interface + Higgsfield implementation.
+  - src/lib/video-providers/types.ts: GenerationSpecs, VideoJobStatus
+    (queued|processing|complete|failed, mirrors the DB enum), VideoResult,
+    VideoProvider interface (submit/getStatus/getResult), typed
+    ProviderApiError.
+  - src/lib/video-providers/higgsfield.ts: HiggsfieldProvider implements
+    VideoProvider via callWithRetry (US-004). normalizeStatus() maps raw
+    provider status strings onto our 4-value enum -- documented as an
+    assumption to revisit once we have real Higgsfield API access/docs, since
+    none was available at implementation time. Retry tuning is
+    constructor-injectable for deterministic tests.
+  - src/lib/video-providers/registry.ts: getVideoProvider(adapterKey) maps
+    video_providers.adapter_key -> live adapter. 'higgsfield' resolves to
+    HiggsfieldProvider (HIGGSFIELD_API_KEY from env). 'nano_banana'/'omni'
+    throw a typed ProviderNotImplementedError (placeholders per US-006),
+    distinct from UnknownProviderError for a genuinely bad key.
+  - 15 new unit tests against a mocked fetch, covering all 4 status mappings,
+    submit/getResult happy paths, retry-then-exhaust on 5xx, no-retry on 4xx,
+    unrecognized-status error, and all 4 registry branches.
+  - tsc --noEmit clean, eslint . clean, vitest run 60/60 passing.
