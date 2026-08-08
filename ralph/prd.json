@@ -320,7 +320,7 @@
       ],
       "priority": 21,
       "passes": false,
-      "notes": ""
+      "notes": "Adapter (publish + refreshCredentials against PlatformAdapter) implemented with unit tests, mirroring HiggsfieldProvider. Still open: the OAuth connect flow itself (authorize redirect, callback route, token persistence into platform_connections via crypto.ts) and wiring the adapter into a publish worker -- those are separate stories/work (US-002/US-010 connect flow, US-024 publish worker) not yet done."
     },
     {
       "id": "US-022",
@@ -336,7 +336,7 @@
       ],
       "priority": 22,
       "passes": false,
-      "notes": ""
+      "notes": "Adapter (publish + refreshCredentials against PlatformAdapter) implemented with unit tests, mirroring HiggsfieldProvider. Still open: the OAuth connect flow itself (authorize redirect, callback route, token persistence into platform_connections via crypto.ts) and wiring the adapter into a publish worker -- those are separate stories/work (US-002/US-010 connect flow, US-024 publish worker) not yet done."
     },
     {
       "id": "US-023",
@@ -352,7 +352,7 @@
       ],
       "priority": 23,
       "passes": false,
-      "notes": ""
+      "notes": "Adapter (publish + refreshCredentials against PlatformAdapter) implemented with unit tests, mirroring HiggsfieldProvider. Still open: the OAuth connect flow itself (authorize redirect, callback route, token persistence into platform_connections via crypto.ts) and wiring the adapter into a publish worker -- those are separate stories/work (US-002/US-010 connect flow, US-024 publish worker) not yet done."
     },
     {
       "id": "US-024",

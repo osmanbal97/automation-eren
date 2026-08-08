@@ -600,3 +600,24 @@ still need merging into this line and a combined gate re-run.
 
 Next: US-017 (store completed videos in Blob storage), then merge in the
 three adapter branches, then continue the backlog (US-018..US-026).
+
+[US-021/022/023] Adapters merged -- partial.
+Merged all three agent branches (worktree-agent-a8fc1c354363c9588 TikTok,
+worktree-agent-aa6ad5f27906a29c5 Instagram, worktree-agent-aeb6e62287d369e4f
+YouTube) via plain `git merge` -- all three touched only new, distinct files
+under src/lib/platforms/, so every merge was conflict-free. Combined gate on
+the merged tree: tsc --noEmit, eslint ., vitest run all clean (225/225,
+up from 177). Each adapter implements PlatformAdapter (publish +
+refreshCredentials) against src/lib/platforms/types.ts, mirroring
+HiggsfieldProvider's injectable-fetchImpl/injectable-retry pattern, with
+API-shape assumptions flagged inline as ASSUMPTION comments for later
+verification against live credentials (exact error codes for
+audit-not-passed / permission-missing / quota-exceeded per platform).
+Marked passes:false with notes rather than true: the acceptance criteria
+also call for the OAuth connect flow itself (authorize redirect, callback,
+token persistence into platform_connections), which no story has built yet
+-- US-010 only ships a manual active/pending/disconnected toggle, not a
+real OAuth exchange. That flow, plus wiring these adapters into the US-024
+publish worker, is what's left to actually close out US-021/022/023.
+
+Next: US-017 (store completed videos in Blob storage).
