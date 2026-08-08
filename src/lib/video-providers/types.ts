@@ -7,6 +7,8 @@ export interface GenerationSpecs {
   resolution: string;
   durationSeconds: number;
   fps?: number;
+  /** Only relevant for per_credit pricing providers; defaults to 1 credit per generation if omitted. */
+  credits?: number;
 }
 
 /** Mirrors the generation_job_status pgEnum (US-002). */

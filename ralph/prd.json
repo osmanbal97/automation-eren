@@ -120,8 +120,8 @@
         "Tests pass"
       ],
       "priority": 8,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "src/lib/cost-estimator.ts: estimateCost(provider, specs) -- per_second multiplies unitPrice*durationSeconds, per_generation returns the flat unitPrice, per_credit multiplies unitPrice*(specs.credits ?? 1) (added an optional `credits` field to GenerationSpecs for this, defaulting to 1 generation = 1 credit when a provider doesn't specify). Accepts unitPrice as either a JS number or the numeric-as-string shape Drizzle returns for `numeric` columns. Result rounded to 4 decimal places to match the estimated_cost/actual_cost/unit_price numeric(10,4) columns. Exhaustive switch with a `never` check so a future pricing model addition fails to typecheck until handled here. 6 unit tests covering all three pricing models, the credits-omitted default, numeric vs string unitPrice input, and rounding. tsc --noEmit clean, eslint . clean, vitest run 66/66 passing."
     },
     {
       "id": "US-009",
