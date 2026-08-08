@@ -466,3 +466,32 @@ results as pending_review ideas.
   lightened per-story policy established after US-013. Phase 4 (Telegram Bot: US-013,
   US-014, US-015) is now fully implemented -- a full manual Postgres+build+curl E2E
   pass is due before starting Phase 5 (Video Generation, US-016+).
+
+[PHASE 4 E2E] Manual full-stack verification (US-013/014/015 boundary)
+- Real Postgres 17 (Homebrew binaries, scratch data dir + TCP on 127.0.0.1,
+  torn down afterward) -> drizzle-kit migrate applied all 11 tables cleanly
+  -> npm run db:seed:providers seeded Higgsfield/Nano Banana/Omni.
+- next build succeeded (production build, typecheck+lint clean as part of it).
+- next start + curl against a live server, using a temp .env.local (deleted
+  after the run, never committed): unauth / -> 307 to /login; wrong
+  password -> 401; correct password -> 200 + signed session cookie;
+  authed / -> 200; /settings/providers -> all 3 seeded providers render;
+  /niches -> 200; a directly-seeded idea shows up on /niches/:id/ideas,
+  confirming the web read path sees the same rows the Telegram action layer
+  writes to; /api/cron/ping -> 401 without the bearer secret, 200 with it;
+  /api/telegram/webhook -> 401 on a wrong secret header.
+- Noted (not a bug, matches the route's documented design): with no real
+  TELEGRAM_BOT_TOKEN configured, POST /api/telegram/webhook's deferred
+  processUpdate is a no-op by design (route.ts returns early before touching
+  the DB or calling processTelegramUpdate), so the idea/video approve/reject
+  callback_query logic itself cannot be driven through a live HTTP round
+  trip without a real bot token (the operator's own responsibility to
+  provision, per earlier notes). That logic is instead fully covered by the
+  136 unit tests, which run processTelegramUpdate/processCallbackQuery
+  against a real (pglite WASM) Postgres with a fake Telegram client --
+  the same level of DB-reality used throughout this project's test suite.
+- Phase 4 (Telegram Bot: US-013 webhook/fast-ack, US-014 idea approval,
+  US-015 video approval) is confirmed fully working end-to-end at the
+  infrastructure/auth/DB layer, with bot-specific business logic verified
+  via the unit suite. Moving on to Phase 5 (Video Generation, starting
+  with US-016).
