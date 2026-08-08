@@ -397,6 +397,23 @@
       "priority": 26,
       "passes": false,
       "notes": ""
+    },
+    {
+      "id": "US-027",
+      "title": "Reference-video description guidance for niches",
+      "description": "As the operator, I want to describe a reference video (in my own words, or a description written by another AI after watching it) when creating or editing a niche, so idea generation produces prompts styled like that reference rather than generic guidance.",
+      "acceptanceCriteria": [
+        "Niche create/edit form has a 'Reference style guidance' textarea, separate from the existing theme guidance field, with helper copy suggesting the operator describe a specific reference video's look/mood/subject (their own words or pasted from another AI)",
+        "New nullable niches.reference_guidance column (text), migration generated and applied",
+        "generateIdeas includes reference_guidance in the prompt sent to Claude when present, clearly distinguished from theme_guidance in the prompt structure",
+        "Field is optional -- niches without it behave exactly as today",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 27,
+      "passes": false,
+      "notes": ""
     }
   ]
 }
