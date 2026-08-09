@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getPlatformAppCredentials } from "@/actions/platform-apps";
 import { saveConnectionTokens } from "@/actions/platform-connections";
 import { getDb } from "@/db/client";
 import { OAUTH_STATE_COOKIE, OAuthStateError, verifyOAuthState } from "@/lib/oauth-state";
@@ -36,10 +37,20 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(failureUrl);
   }
 
+  const db = getDb();
+  const credentials = await getPlatformAppCredentials(db, "youtube");
+  if (!credentials) {
+    return NextResponse.redirect(
+      new URL(`/niches/${nicheId}?connection_error=youtube&reason=not_configured`, request.url),
+    );
+  }
+
   try {
     const redirectUri = new URL("/api/auth/youtube/callback", request.url).toString();
-    const tokens = await exchangeYouTubeCode(code, redirectUri);
-    const db = getDb();
+    const tokens = await exchangeYouTubeCode(code, redirectUri, {
+      clientId: credentials.clientId,
+      clientSecret: credentials.clientSecret,
+    });
     await saveConnectionTokens(db, nicheId, "youtube", tokens);
   } catch {
     return NextResponse.redirect(failureUrl);

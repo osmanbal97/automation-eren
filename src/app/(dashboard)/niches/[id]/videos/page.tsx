@@ -6,6 +6,7 @@ import { ActionNotFoundError } from "@/actions/errors";
 import { getDb } from "@/db/client";
 import { ideas, videos } from "@/db/schema";
 import { EmptyState, PageHeader } from "@/components/ui";
+import { getT } from "@/lib/i18n";
 import { VideoReviewCard } from "./VideoReviewCard";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,7 @@ export const dynamic = "force-dynamic";
  * prompt or have Claude optimize it, then re-queue generation) -- all backed by the
  * US-005 shared action layer, mirroring the ideas review queue. */
 export default async function VideoReviewPage({ params }: { params: Promise<{ id: string }> }) {
+  const { t } = await getT();
   const { id } = await params;
   const db = getDb();
 
@@ -43,24 +45,31 @@ export default async function VideoReviewPage({ params }: { params: Promise<{ id
 
       <div className="mt-3">
         <PageHeader
-          eyebrow="Review queue"
-          title="Videos"
-          description={`${rows.length} video${rows.length === 1 ? "" : "s"} pending review. Preview, tweak the caption, or regenerate before approving.`}
+          eyebrow={t.videos.eyebrow}
+          title={t.videos.title}
+          description={t.videos.pendingDescription(rows.length)}
         />
       </div>
 
       {rows.length === 0 ? (
-        <EmptyState title="Queue is clear">
-          Approve more ideas from the{" "}
+        <EmptyState title={t.videos.emptyTitle}>
+          {t.videos.emptyBodyPrefix}{" "}
           <Link href={`/niches/${id}/ideas`} className="text-accent-violet hover:underline">
-            ideas queue
+            {t.videos.emptyBodyLink}
           </Link>{" "}
-          to generate videos.
+          {t.videos.emptyBodySuffix}
         </EmptyState>
       ) : (
         <div className="space-y-5">
           {rows.map(({ video, ideaTitle, ideaPrompt }) => (
-            <VideoReviewCard key={video.id} video={video} ideaTitle={ideaTitle} ideaPrompt={ideaPrompt} nicheId={id} />
+            <VideoReviewCard
+              key={video.id}
+              video={video}
+              ideaTitle={ideaTitle}
+              ideaPrompt={ideaPrompt}
+              nicheId={id}
+              dict={t.videos}
+            />
           ))}
         </div>
       )}

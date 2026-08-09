@@ -6,6 +6,7 @@ import { ActionNotFoundError } from "@/actions/errors";
 import { getDb } from "@/db/client";
 import { ideas, videoProviders } from "@/db/schema";
 import { EmptyState, PageHeader } from "@/components/ui";
+import { getT } from "@/lib/i18n";
 import { IdeaReviewCard } from "./IdeaReviewCard";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +15,7 @@ export const dynamic = "force-dynamic";
  * edit for prompt/caption, a provider/specs picker showing a live cost estimate, and
  * Approve/Reject -- all backed by the US-005 shared action layer. */
 export default async function IdeaReviewPage({ params }: { params: Promise<{ id: string }> }) {
+  const { t } = await getT();
   const { id } = await params;
   const db = getDb();
 
@@ -44,24 +46,24 @@ export default async function IdeaReviewPage({ params }: { params: Promise<{ id:
 
       <div className="mt-3">
         <PageHeader
-          eyebrow="Review queue"
-          title="Ideas"
-          description={`${pendingIdeas.length} idea${pendingIdeas.length === 1 ? "" : "s"} pending review. Tune the prompt — or let Claude optimize it — before approving.`}
+          eyebrow={t.ideas.eyebrow}
+          title={t.ideas.title}
+          description={t.ideas.pendingDescription(pendingIdeas.length)}
         />
       </div>
 
       {pendingIdeas.length === 0 ? (
-        <EmptyState title="Queue is clear">
-          Generate more from the{" "}
+        <EmptyState title={t.ideas.emptyTitle}>
+          {t.ideas.emptyBodyPrefix}{" "}
           <Link href={`/niches/${id}`} className="text-accent-violet hover:underline">
-            niche page
+            {t.ideas.emptyBodyLink}
           </Link>
-          .
+          {t.ideas.emptyBodySuffix}
         </EmptyState>
       ) : (
         <div className="space-y-5">
           {pendingIdeas.map((idea) => (
-            <IdeaReviewCard key={idea.id} idea={idea} nicheId={id} providers={providers} />
+            <IdeaReviewCard key={idea.id} idea={idea} nicheId={id} providers={providers} dict={t.ideas} />
           ))}
         </div>
       )}

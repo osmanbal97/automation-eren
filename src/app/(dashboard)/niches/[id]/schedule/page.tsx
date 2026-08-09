@@ -6,6 +6,7 @@ import { ActionNotFoundError } from "@/actions/errors";
 import { getDb } from "@/db/client";
 import { ideas, scheduledPosts, videos } from "@/db/schema";
 import { EmptyState, PageHeader } from "@/components/ui";
+import { getT } from "@/lib/i18n";
 import { ScheduleCard } from "./ScheduleCard";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,7 @@ export const dynamic = "force-dynamic";
  * scheduled_posts row per platform, validated against the niche's per-platform daily
  * cap (niches.targetPostsPerDay) by the schedulePost action. */
 export default async function SchedulePage({ params }: { params: Promise<{ id: string }> }) {
+  const { t, locale } = await getT();
   const { id } = await params;
   const db = getDb();
 
@@ -59,19 +61,19 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
 
       <div className="mt-3">
         <PageHeader
-          eyebrow="Scheduling"
-          title="Schedule"
-          description={`${rows.length} video${rows.length === 1 ? "" : "s"} ready to schedule. Pick platform(s) and a time for each — one slot per platform, capped by this niche's daily limits.`}
+          eyebrow={t.schedule.eyebrow}
+          title={t.schedule.title}
+          description={t.schedule.readyDescription(rows.length)}
         />
       </div>
 
       {rows.length === 0 ? (
-        <EmptyState title="Nothing ready to schedule">
-          Approve more videos from the{" "}
+        <EmptyState title={t.schedule.emptyTitle}>
+          {t.schedule.emptyBodyPrefix}{" "}
           <Link href={`/niches/${id}/videos`} className="text-accent-violet hover:underline">
-            video review queue
+            {t.schedule.emptyBodyLink}
           </Link>{" "}
-          first.
+          {t.schedule.emptyBodySuffix}
         </EmptyState>
       ) : (
         <div className="space-y-5">
@@ -82,6 +84,9 @@ export default async function SchedulePage({ params }: { params: Promise<{ id: s
               ideaTitle={ideaTitle}
               nicheId={id}
               existingPosts={postsByVideo.get(video.id) ?? []}
+              dict={t.schedule}
+              statusDict={t.status.post}
+              locale={locale}
             />
           ))}
         </div>

@@ -222,6 +222,20 @@ export const errorLogs = pgTable("error_logs", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** App-level OAuth client credentials for TikTok/Instagram(Meta)/YouTube(Google), one row
+ * per platform -- a single registered developer app is reused to connect every niche's
+ * account on that platform, so this is keyed by platform alone, not per-niche. Configured
+ * through the Socials settings UI (US-021/022/023's authorize/callback routes fall back to
+ * process.env when a platform has no row here, so nothing breaks before keys are set). */
+export const platformApps = pgTable("platform_apps", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  platform: platformEnum("platform").notNull().unique(),
+  clientIdEncrypted: text("client_id_encrypted").notNull(),
+  clientSecretEncrypted: text("client_secret_encrypted").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const botSessions = pgTable("bot_sessions", {
   id: uuid("id").primaryKey().defaultRandom(),
   chatId: text("chat_id").notNull().unique(),

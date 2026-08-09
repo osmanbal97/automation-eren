@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { ideas, videoProviders } from "@/db/schema";
 import { estimateCost } from "@/lib/cost-estimator";
 import { Button, Field, Input, Panel, Select, Textarea } from "@/components/ui";
+import type { Dictionary } from "@/lib/i18n";
 import { approveIdeaAction, optimizePromptAction, rejectIdeaAction, updateIdeaAction } from "./actions";
 
 type Idea = typeof ideas.$inferSelect;
@@ -18,7 +19,17 @@ interface GenerationSpecsShape {
 /** Review-queue card for one pending idea (US-012): inline edit for prompt/caption, a
  * provider/specs picker with a live-updated cost estimate, and Approve/Reject -- all
  * wired to the US-005 shared action layer via the server actions in ./actions.ts. */
-export function IdeaReviewCard({ idea, nicheId, providers }: { idea: Idea; nicheId: string; providers: Provider[] }) {
+export function IdeaReviewCard({
+  idea,
+  nicheId,
+  providers,
+  dict,
+}: {
+  idea: Idea;
+  nicheId: string;
+  providers: Provider[];
+  dict: Dictionary["ideas"];
+}) {
   const specs = (idea.generationSpecs as GenerationSpecsShape | null) ?? {};
   const [providerId, setProviderId] = useState(idea.providerId ?? "");
   const [resolution, setResolution] = useState(specs.resolution ?? "1080x1920");
@@ -46,14 +57,14 @@ export function IdeaReviewCard({ idea, nicheId, providers }: { idea: Idea; niche
             <input type="hidden" name="ideaId" value={idea.id} />
             <input type="hidden" name="nicheId" value={nicheId} />
             <Button type="submit" variant="primary" size="sm">
-              ✓ Approve
+              ✓ {dict.approve}
             </Button>
           </form>
           <form action={rejectIdeaAction}>
             <input type="hidden" name="ideaId" value={idea.id} />
             <input type="hidden" name="nicheId" value={nicheId} />
             <Button type="submit" variant="danger" size="sm">
-              Reject
+              {dict.reject}
             </Button>
           </form>
         </div>
@@ -66,11 +77,11 @@ export function IdeaReviewCard({ idea, nicheId, providers }: { idea: Idea; niche
         <input type="hidden" name="ideaId" value={idea.id} />
         <input type="hidden" name="nicheId" value={nicheId} />
         <span className="shrink-0 text-xs font-medium tracking-wide text-fg-subtle uppercase">
-          ✨ Optimize
+          ✨ {dict.optimize}
         </span>
-        <Input name="note" placeholder="What to fix (optional)…" className="min-w-[10rem] flex-1" />
+        <Input name="note" placeholder={dict.optimizePlaceholder} className="min-w-[10rem] flex-1" />
         <Button type="submit" variant="secondary" size="sm" className="shrink-0">
-          Rewrite prompt
+          {dict.rewritePrompt}
         </Button>
       </form>
 
@@ -78,21 +89,21 @@ export function IdeaReviewCard({ idea, nicheId, providers }: { idea: Idea; niche
         <input type="hidden" name="ideaId" value={idea.id} />
         <input type="hidden" name="nicheId" value={nicheId} />
 
-        <Field label="Prompt">
+        <Field label={dict.promptLabel}>
           <Textarea name="prompt" required rows={3} defaultValue={idea.prompt} />
         </Field>
 
-        <Field label="Caption">
+        <Field label={dict.captionLabel}>
           <Textarea name="caption" required rows={2} defaultValue={idea.caption} />
         </Field>
 
-        <Field label="Provider">
+        <Field label={dict.providerLabel}>
           <Select
             name="providerId"
             value={providerId}
             onChange={(event) => setProviderId(event.target.value)}
           >
-            <option value="">None</option>
+            <option value="">{dict.pickProvider}</option>
             {providers.map((provider) => (
               <option key={provider.id} value={provider.id}>
                 {provider.name}
@@ -102,7 +113,7 @@ export function IdeaReviewCard({ idea, nicheId, providers }: { idea: Idea; niche
         </Field>
 
         <div className="grid gap-4 sm:grid-cols-3">
-          <Field label="Resolution">
+          <Field label={dict.resolutionLabel}>
             <Input
               name="resolution"
               required
@@ -110,7 +121,7 @@ export function IdeaReviewCard({ idea, nicheId, providers }: { idea: Idea; niche
               onChange={(event) => setResolution(event.target.value)}
             />
           </Field>
-          <Field label="Duration (s)">
+          <Field label={dict.durationLabel}>
             <Input
               type="number"
               min={1}
@@ -120,7 +131,7 @@ export function IdeaReviewCard({ idea, nicheId, providers }: { idea: Idea; niche
               onChange={(event) => setDurationSeconds(Number(event.target.value))}
             />
           </Field>
-          <Field label="Aspect ratio">
+          <Field label={dict.aspectRatioLabel}>
             <Input
               name="aspectRatio"
               required
@@ -132,16 +143,16 @@ export function IdeaReviewCard({ idea, nicheId, providers }: { idea: Idea; niche
 
         <div className="-mx-6 -mb-6 mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-line bg-ink-900/40 px-6 py-4">
           <p className="text-sm text-fg-muted">
-            Estimated cost{" "}
+            {dict.estimatedCost}{" "}
             <span className="ml-1 text-base font-semibold tabular-nums text-fg">
               {liveEstimate !== null ? `$${liveEstimate.toFixed(4)}` : "—"}
             </span>
             {liveEstimate === null ? (
-              <span className="ml-2 text-xs text-fg-subtle">pick a provider</span>
+              <span className="ml-2 text-xs text-fg-subtle">{dict.pickProvider}</span>
             ) : null}
           </p>
           <Button type="submit" variant="secondary">
-            Save changes
+            {dict.saveChanges}
           </Button>
         </div>
       </form>

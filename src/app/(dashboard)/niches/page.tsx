@@ -4,6 +4,7 @@ import { listNichesWithConnections, type TargetPostsPerDay } from "@/actions/nic
 import { getDb } from "@/db/client";
 import { videoProviders } from "@/db/schema";
 import { Badge, type BadgeTone, EmptyState, PageHeader, Panel, PanelHeader } from "@/components/ui";
+import { getT } from "@/lib/i18n";
 import { NicheFormFields } from "./NicheFormFields";
 import { createNicheAction, deleteNicheAction } from "./actions";
 
@@ -18,6 +19,7 @@ const STATUS_TONES: Record<string, BadgeTone> = {
 };
 
 export default async function NichesPage() {
+  const { t } = await getT();
   const db = getDb();
   const [niches, providers] = await Promise.all([
     listNichesWithConnections(db),
@@ -27,13 +29,13 @@ export default async function NichesPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Configuration"
-        title="Niches"
-        description="Each niche has its own theme, posting cadence, default provider and generation specs."
+        eyebrow={t.nichesList.eyebrow}
+        title={t.nichesList.title}
+        description={t.nichesList.description}
       />
 
       {niches.length === 0 ? (
-        <EmptyState title="No niches yet">Create your first one below.</EmptyState>
+        <EmptyState title={t.nichesList.emptyTitle}>{t.nichesList.emptyBody}</EmptyState>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {niches.map((niche) => {
@@ -60,20 +62,20 @@ export default async function NichesPage() {
                       type="submit"
                       className="text-xs font-medium text-fg-subtle transition hover:text-danger"
                     >
-                      Delete
+                      {t.nichesList.delete}
                     </button>
                   </form>
                 </div>
 
                 <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <dt className="text-xs tracking-wide text-fg-subtle uppercase">Provider</dt>
+                    <dt className="text-xs tracking-wide text-fg-subtle uppercase">{t.nichesList.provider}</dt>
                     <dd className="mt-1 text-fg">
-                      {niche.defaultProviderName ?? <span className="text-fg-subtle">none</span>}
+                      {niche.defaultProviderName ?? <span className="text-fg-subtle">{t.nichesList.none}</span>}
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-xs tracking-wide text-fg-subtle uppercase">Posts / day</dt>
+                    <dt className="text-xs tracking-wide text-fg-subtle uppercase">{t.nichesList.postsPerDay}</dt>
                     <dd className="mt-1 tabular-nums text-fg">{totalPerDay}</dd>
                   </div>
                 </dl>
@@ -102,12 +104,14 @@ export default async function NichesPage() {
       )}
 
       <Panel className="mt-10">
-        <PanelHeader
-          title="New niche"
-          description="Theme guidance is what Claude reads when drafting ideas — be specific about mood and visual language."
-        />
+        <PanelHeader title={t.nichesList.newNichePanel.title} description={t.nichesList.newNichePanel.description} />
         <div className="px-6 py-6">
-          <NicheFormFields action={createNicheAction} providers={providers} submitLabel="Create niche" />
+          <NicheFormFields
+            action={createNicheAction}
+            providers={providers}
+            submitLabel={t.nichesList.createNiche}
+            dict={t.nicheForm}
+          />
         </div>
       </Panel>
     </>

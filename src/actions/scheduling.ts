@@ -1,4 +1,4 @@
-import { and, eq, gte, lt, ne } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lt, ne } from "drizzle-orm";
 import type { Database } from "@/db/client";
 import { niches, platformEnum, scheduledPosts, videos } from "@/db/schema";
 import { ActionNotFoundError, InvalidActionStateError } from "./errors";
@@ -105,4 +105,21 @@ export async function listScheduledPostsForVideo(db: Database, videoId: string) 
     .from(scheduledPosts)
     .where(eq(scheduledPosts.videoId, videoId))
     .orderBy(scheduledPosts.scheduledAt);
+}
+
+const UPCOMING_STATUSES = ["scheduled", "awaiting_platform_approval", "publishing"] as const;
+
+/** Everything still due to go out, soonest first -- the Overview page's forward-looking
+ * "what's about to publish" glance, distinct from History's all-time log. Excludes
+ * anything already `published` or `failed` and anything whose scheduled time has already
+ * passed (a stuck `scheduled` row past its time belongs in History/monitoring, not here). */
+export async function listUpcomingScheduledPosts(db: Database, limit = 8) {
+  return db
+    .select({ post: scheduledPosts, video: videos, nicheName: niches.name })
+    .from(scheduledPosts)
+    .innerJoin(videos, eq(scheduledPosts.videoId, videos.id))
+    .innerJoin(niches, eq(scheduledPosts.nicheId, niches.id))
+    .where(and(gte(scheduledPosts.scheduledAt, new Date()), inArray(scheduledPosts.status, UPCOMING_STATUSES)))
+    .orderBy(asc(scheduledPosts.scheduledAt))
+    .limit(limit);
 }

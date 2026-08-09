@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getPlatformAppCredentials } from "@/actions/platform-apps";
 import { saveConnectionTokens } from "@/actions/platform-connections";
 import { getDb } from "@/db/client";
 import { OAUTH_STATE_COOKIE, OAuthStateError, verifyOAuthState } from "@/lib/oauth-state";
@@ -35,11 +36,22 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(failureUrl);
   }
 
+  const db = getDb();
+  const credentials = await getPlatformAppCredentials(db, "tiktok");
+  if (!credentials) {
+    return NextResponse.redirect(
+      new URL(`/niches/${nicheId}?connection_error=tiktok&reason=not_configured`, request.url),
+    );
+  }
+
   try {
     // Must byte-match the redirect_uri used on the authorize request.
     const redirectUri = new URL("/api/auth/tiktok/callback", request.url).toString();
-    const tokens = await exchangeTikTokCode(code, redirectUri);
-    await saveConnectionTokens(getDb(), nicheId, "tiktok", tokens);
+    const tokens = await exchangeTikTokCode(code, redirectUri, {
+      clientKey: credentials.clientId,
+      clientSecret: credentials.clientSecret,
+    });
+    await saveConnectionTokens(db, nicheId, "tiktok", tokens);
   } catch {
     return NextResponse.redirect(failureUrl);
   }

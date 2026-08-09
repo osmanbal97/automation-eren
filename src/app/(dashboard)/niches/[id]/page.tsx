@@ -11,36 +11,13 @@ import {
 import { ActionNotFoundError } from "@/actions/errors";
 import { getDb } from "@/db/client";
 import { ideas, videoProviders, videos } from "@/db/schema";
-import {
-  Badge,
-  type BadgeTone,
-  Button,
-  ButtonLink,
-  PageHeader,
-  Panel,
-  PanelHeader,
-} from "@/components/ui";
+import { Badge, type BadgeTone, Button, ButtonLink, PageHeader, Panel, PanelHeader } from "@/components/ui";
+import { getT } from "@/lib/i18n";
+import { connectionResultMessage, connectionStatusLabel, PLATFORMS, STATUS_TONES } from "@/lib/platform-connection-ui";
 import { NicheFormFields } from "../NicheFormFields";
 import { generateIdeasAction, updateConnectionStatusAction, updateNicheAction } from "../actions";
 
 export const dynamic = "force-dynamic";
-
-const PLATFORMS = ["tiktok", "instagram", "youtube"] as const;
-
-/** Per-platform copy for what "pending" actually means, per the PRD's "waiting on TikTok
- * audit" / "waiting on Meta app review" wording — a generic "Pending review" label doesn't
- * tell the operator which external process they're actually waiting on. */
-const PENDING_LABELS: Record<(typeof PLATFORMS)[number], string> = {
-  tiktok: "Waiting on TikTok audit",
-  instagram: "Waiting on Meta app review",
-  youtube: "Waiting on Google OAuth verification",
-};
-
-const STATUS_TONES: Record<string, BadgeTone> = {
-  active: "success",
-  pending_review: "pending",
-  disconnected: "idle",
-};
 
 const JOB_STATUS_TONES: Record<string, BadgeTone> = {
   queued: "idle",
@@ -49,21 +26,17 @@ const JOB_STATUS_TONES: Record<string, BadgeTone> = {
   failed: "danger",
 };
 
-const JOB_STATUS_LABELS: Record<string, string> = {
-  queued: "Queued",
-  processing: "Generating…",
-  complete: "Complete",
-  failed: "Failed",
-};
-
-function statusLabel(platform: (typeof PLATFORMS)[number], status: string) {
-  if (status === "active") return "Active";
-  if (status === "pending_review") return PENDING_LABELS[platform];
-  return "Not connected";
-}
-
-export default async function EditNichePage({ params }: { params: Promise<{ id: string }> }) {
+export default async function EditNichePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ connected?: string; connection_error?: string; reason?: string }>;
+}) {
+  const { t } = await getT();
   const { id } = await params;
+  const { connected, connection_error: connectionError, reason } = await searchParams;
+  const banner = connectionResultMessage(t.connectionStatus, { connected, connectionError, reason });
   const db = getDb();
 
   let niche;
@@ -102,18 +75,27 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
   return (
     <>
       <Link href="/niches" className="text-sm text-fg-muted transition hover:text-fg">
-        ← All niches
+        ← {t.nicheDetail.allNiches}
       </Link>
 
       <div className="mt-3">
         <PageHeader eyebrow="Niche" title={niche.name} />
       </div>
 
+      {banner && (
+        <div
+          className={`mt-4 rounded-lg border px-4 py-3 text-sm ${
+            banner.tone === "success"
+              ? "border-success/30 bg-success-dim text-success"
+              : "border-danger/30 bg-danger-dim text-danger"
+          }`}
+        >
+          {banner.message}
+        </div>
+      )}
+
       <Panel>
-        <PanelHeader
-          title="Platform connections"
-          description="Status is a manual flag, not a live OAuth check — flip a platform to Active only once you know its audit/review has actually passed."
-        />
+        <PanelHeader title={t.nicheDetail.connectionsPanel.title} description={t.nicheDetail.connectionsPanel.description} />
         <div className="space-y-3 px-6 py-6">
           {PLATFORMS.map((platform) => {
             const status = connectionByPlatform.get(platform) ?? "disconnected";
@@ -125,18 +107,23 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
                 <div>
                   <div className="text-sm font-medium capitalize">{platform}</div>
                   <Badge tone={STATUS_TONES[status] ?? "idle"} className="mt-1.5">
-                    {statusLabel(platform, status)}
+                    {connectionStatusLabel(t.connectionStatus, platform, status)}
                   </Badge>
                 </div>
 
                 <div className="flex gap-2">
                   {status === "disconnected" && (
-                    <ConnectionStatusButton
-                      nicheId={id}
-                      platform={platform}
-                      status="pending_review"
-                      label="Mark as submitted"
-                    />
+                    <>
+                      <ButtonLink href={`/api/auth/${platform}/authorize?nicheId=${id}`} variant="secondary" size="sm">
+                        {t.nicheDetail.connectViaOAuth}
+                      </ButtonLink>
+                      <ConnectionStatusButton
+                        nicheId={id}
+                        platform={platform}
+                        status="pending_review"
+                        label={t.nicheDetail.markSubmitted}
+                      />
+                    </>
                   )}
                   {status === "pending_review" && (
                     <>
@@ -144,14 +131,14 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
                         nicheId={id}
                         platform={platform}
                         status="active"
-                        label="Mark as active"
+                        label={t.nicheDetail.markActive}
                         variant="primary"
                       />
                       <ConnectionStatusButton
                         nicheId={id}
                         platform={platform}
                         status="disconnected"
-                        label="Reset"
+                        label={t.nicheDetail.reset}
                       />
                     </>
                   )}
@@ -160,7 +147,7 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
                       nicheId={id}
                       platform={platform}
                       status="disconnected"
-                      label="Disconnect"
+                      label={t.nicheDetail.disconnect}
                     />
                   )}
                 </div>
@@ -172,12 +159,12 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
 
       <Panel className="mt-6">
         <PanelHeader
-          title="Ideas"
-          description="Generates 5 concepts via Claude using this niche's theme guidance. Review, edit, approve, or reject each one from the review queue."
+          title={t.nicheDetail.ideasPanel.title}
+          description={t.nicheDetail.ideasPanel.description}
           action={
             <form action={generateIdeasAction.bind(null, id)}>
               <Button type="submit" variant="primary">
-                ✦ Generate 5 ideas
+                ✦ {t.nicheDetail.generateIdeas}
               </Button>
             </form>
           }
@@ -185,19 +172,16 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
         <div className="px-6 py-6">
           {pendingIdeas.length > 0 ? (
             <ButtonLink href={`/niches/${id}/ideas`} variant="secondary" className="w-full py-4">
-              Review {pendingIdeas.length} pending idea{pendingIdeas.length === 1 ? "" : "s"} →
+              {t.nicheDetail.reviewIdeasCta(pendingIdeas.length)}
             </ButtonLink>
           ) : (
-            <p className="text-sm text-fg-subtle">No ideas pending review yet.</p>
+            <p className="text-sm text-fg-subtle">{t.nicheDetail.noIdeasPending}</p>
           )}
         </div>
       </Panel>
 
       <Panel className="mt-6">
-        <PanelHeader
-          title="Generation jobs"
-          description="Live status per approved idea's video generation, newest first. Last error shown even on a completed job if storing its video failed."
-        />
+        <PanelHeader title={t.nicheDetail.jobsPanel.title} description={t.nicheDetail.jobsPanel.description} />
         <div className="px-6 py-6">
           {generationJobs.length > 0 ? (
             <ul className="space-y-3">
@@ -209,61 +193,56 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
                   <div>
                     <div className="text-sm font-medium">{ideaTitle}</div>
                     <div className="mt-1 text-xs text-fg-subtle">
-                      {providerName} · attempt {job.attemptCount}
+                      {providerName} · {t.nicheDetail.attempt(job.attemptCount)}
                       {job.lastError ? ` · ${job.lastError}` : ""}
                     </div>
                   </div>
                   <Badge tone={JOB_STATUS_TONES[job.status] ?? "idle"}>
-                    {JOB_STATUS_LABELS[job.status] ?? job.status}
+                    {t.status.job[job.status as keyof typeof t.status.job] ?? job.status}
                   </Badge>
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-fg-subtle">No generation jobs yet — approve an idea to queue one.</p>
+            <p className="text-sm text-fg-subtle">{t.nicheDetail.noJobsYet}</p>
           )}
         </div>
       </Panel>
 
       <Panel className="mt-6">
-        <PanelHeader
-          title="Videos"
-          description="Preview each generated video, edit its caption/hashtags, or regenerate it before approving for scheduling."
-        />
+        <PanelHeader title={t.nicheDetail.videosPanel.title} description={t.nicheDetail.videosPanel.description} />
         <div className="px-6 py-6">
           {pendingVideos.length > 0 ? (
             <ButtonLink href={`/niches/${id}/videos`} variant="secondary" className="w-full py-4">
-              Review {pendingVideos.length} pending video{pendingVideos.length === 1 ? "" : "s"} →
+              {t.nicheDetail.reviewVideosCta(pendingVideos.length)}
             </ButtonLink>
           ) : (
-            <p className="text-sm text-fg-subtle">No videos pending review yet.</p>
+            <p className="text-sm text-fg-subtle">{t.nicheDetail.noVideosPending}</p>
           )}
         </div>
       </Panel>
 
       <Panel className="mt-6">
-        <PanelHeader
-          title="Schedule"
-          description="Book a ready-to-schedule video onto one or more platforms at a given time, capped by this niche's daily limits per platform."
-        />
+        <PanelHeader title={t.nicheDetail.schedulePanel.title} description={t.nicheDetail.schedulePanel.description} />
         <div className="px-6 py-6">
           {readyVideos.length > 0 ? (
             <ButtonLink href={`/niches/${id}/schedule`} variant="secondary" className="w-full py-4">
-              Schedule {readyVideos.length} ready video{readyVideos.length === 1 ? "" : "s"} →
+              {t.nicheDetail.scheduleVideosCta(readyVideos.length)}
             </ButtonLink>
           ) : (
-            <p className="text-sm text-fg-subtle">No videos ready to schedule yet.</p>
+            <p className="text-sm text-fg-subtle">{t.nicheDetail.noVideosReady}</p>
           )}
         </div>
       </Panel>
 
       <Panel className="mt-6">
-        <PanelHeader title="Settings" />
+        <PanelHeader title={t.nicheDetail.settingsPanel.title} />
         <div className="px-6 py-6">
           <NicheFormFields
             action={updateNicheAction.bind(null, id)}
             providers={providers}
-            submitLabel="Save changes"
+            submitLabel={t.nicheForm.saveChanges}
+            dict={t.nicheForm}
             defaults={{
               name: niche.name,
               themeGuidance: niche.themeGuidance,

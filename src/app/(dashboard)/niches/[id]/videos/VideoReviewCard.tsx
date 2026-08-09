@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { ideas, videos } from "@/db/schema";
 import { Button, Field, Input, Panel, Textarea } from "@/components/ui";
+import type { Dictionary } from "@/lib/i18n";
 import {
   approveVideoAction,
   regenerateWithEditedPromptAction,
@@ -23,11 +24,13 @@ export function VideoReviewCard({
   ideaTitle,
   ideaPrompt,
   nicheId,
+  dict,
 }: {
   video: Video;
   ideaTitle: string;
   ideaPrompt: Idea["prompt"];
   nicheId: string;
+  dict: Dictionary["videos"];
 }) {
   const [regenerateOpen, setRegenerateOpen] = useState(false);
   const hashtags = Array.isArray(video.hashtags) ? (video.hashtags as string[]) : [];
@@ -44,14 +47,14 @@ export function VideoReviewCard({
             <input type="hidden" name="videoId" value={video.id} />
             <input type="hidden" name="nicheId" value={nicheId} />
             <Button type="submit" variant="primary" size="sm">
-              ✓ Approve
+              ✓ {dict.approve}
             </Button>
           </form>
           <form action={rejectVideoAction}>
             <input type="hidden" name="videoId" value={video.id} />
             <input type="hidden" name="nicheId" value={nicheId} />
             <Button type="submit" variant="danger" size="sm">
-              Reject
+              {dict.reject}
             </Button>
           </form>
         </div>
@@ -71,17 +74,17 @@ export function VideoReviewCard({
         <input type="hidden" name="videoId" value={video.id} />
         <input type="hidden" name="nicheId" value={nicheId} />
 
-        <Field label="Caption">
+        <Field label={dict.captionLabel}>
           <Textarea name="caption" required rows={2} defaultValue={video.caption} />
         </Field>
 
-        <Field label="Hashtags (comma-separated)">
-          <Input name="hashtags" defaultValue={hashtags.join(", ")} placeholder="trippy, pov, wholesome" />
+        <Field label={dict.hashtagsLabel}>
+          <Input name="hashtags" defaultValue={hashtags.join(", ")} placeholder={dict.hashtagsPlaceholder} />
         </Field>
 
         <div className="flex justify-end">
           <Button type="submit" variant="secondary">
-            Save changes
+            {dict.saveChanges}
           </Button>
         </div>
       </form>
@@ -92,7 +95,7 @@ export function VideoReviewCard({
           onClick={() => setRegenerateOpen((open) => !open)}
           className="flex w-full items-center justify-between px-6 py-3.5 text-left text-xs font-medium tracking-wide text-fg-subtle uppercase transition hover:text-fg"
         >
-          <span>🔁 Regenerate</span>
+          <span>🔁 {dict.regenerateToggle}</span>
           <span>{regenerateOpen ? "−" : "+"}</span>
         </button>
 
@@ -101,12 +104,12 @@ export function VideoReviewCard({
             <form action={regenerateWithEditedPromptAction} className="space-y-3">
               <input type="hidden" name="ideaId" value={video.ideaId} />
               <input type="hidden" name="nicheId" value={nicheId} />
-              <Field label="Regenerate with an edited prompt">
+              <Field label={dict.regenerateEditedLabel}>
                 <Textarea name="prompt" required rows={3} defaultValue={ideaPrompt} />
               </Field>
               <div className="flex justify-end">
                 <Button type="submit" variant="secondary" size="sm">
-                  Regenerate
+                  {dict.regenerateButton}
                 </Button>
               </div>
             </form>
@@ -118,11 +121,11 @@ export function VideoReviewCard({
               <input type="hidden" name="ideaId" value={video.ideaId} />
               <input type="hidden" name="nicheId" value={nicheId} />
               <span className="shrink-0 text-xs font-medium tracking-wide text-fg-subtle uppercase">
-                ✨ Optimize
+                ✨ {dict.optimizeLabel}
               </span>
-              <Input name="note" placeholder="What to fix (optional)…" className="min-w-[10rem] flex-1" />
+              <Input name="note" placeholder={dict.optimizePlaceholder} className="min-w-[10rem] flex-1" />
               <Button type="submit" variant="secondary" size="sm" className="shrink-0">
-                Optimize &amp; regenerate
+                {dict.optimizeRegenerateButton}
               </Button>
             </form>
           </div>

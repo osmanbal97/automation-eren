@@ -2,6 +2,8 @@
 
 import type { scheduledPosts, videos } from "@/db/schema";
 import { Badge, type BadgeTone, Button, Field, Input, Panel } from "@/components/ui";
+import type { Dictionary, Locale } from "@/lib/i18n";
+import { toBcp47 } from "@/lib/i18n";
 import { scheduleVideoAction } from "./actions";
 
 type Video = typeof videos.$inferSelect;
@@ -27,11 +29,17 @@ export function ScheduleCard({
   ideaTitle,
   nicheId,
   existingPosts,
+  dict,
+  statusDict,
+  locale,
 }: {
   video: Video;
   ideaTitle: string;
   nicheId: string;
   existingPosts: ScheduledPost[];
+  dict: Dictionary["schedule"];
+  statusDict: Dictionary["status"]["post"];
+  locale: Locale;
 }) {
   return (
     <Panel className="animate-rise overflow-hidden">
@@ -45,9 +53,11 @@ export function ScheduleCard({
           {existingPosts.map((post) => (
             <li key={post.id} className="flex items-center justify-between gap-3 text-sm">
               <span className="text-fg-muted capitalize">
-                {post.platform} · {new Date(post.scheduledAt).toLocaleString()}
+                {post.platform} · {new Date(post.scheduledAt).toLocaleString(toBcp47(locale))}
               </span>
-              <Badge tone={POST_STATUS_TONES[post.status] ?? "idle"}>{post.status.replaceAll("_", " ")}</Badge>
+              <Badge tone={POST_STATUS_TONES[post.status] ?? "idle"}>
+                {statusDict[post.status as keyof typeof statusDict] ?? post.status}
+              </Badge>
             </li>
           ))}
         </ul>
@@ -59,7 +69,7 @@ export function ScheduleCard({
 
         <div>
           <span className="mb-1.5 block text-xs font-medium tracking-wide text-fg-muted uppercase">
-            Platforms
+            {dict.platformsLabel}
           </span>
           <div className="flex flex-wrap gap-4">
             {PLATFORMS.map((platform) => (
@@ -76,13 +86,13 @@ export function ScheduleCard({
           </div>
         </div>
 
-        <Field label="When" hint="Interpreted in the server's local time zone.">
+        <Field label={dict.whenLabel} hint={dict.whenHint}>
           <Input type="datetime-local" name="scheduledAt" required />
         </Field>
 
         <div className="flex justify-end">
           <Button type="submit" variant="primary" size="sm">
-            Schedule
+            {dict.scheduleButton}
           </Button>
         </div>
       </form>

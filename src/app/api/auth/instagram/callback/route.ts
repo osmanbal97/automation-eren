@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getPlatformAppCredentials } from "@/actions/platform-apps";
 import { saveConnectionTokens } from "@/actions/platform-connections";
 import { getDb } from "@/db/client";
 import { OAUTH_STATE_COOKIE, OAuthStateError, verifyOAuthState } from "@/lib/oauth-state";
@@ -36,13 +37,23 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(failureUrl);
   }
 
+  const db = getDb();
+  const credentials = await getPlatformAppCredentials(db, "instagram");
+  if (!credentials) {
+    return NextResponse.redirect(
+      new URL(`/niches/${nicheId}?connection_error=instagram&reason=not_configured`, request.url),
+    );
+  }
+
   // Must match the redirect_uri sent to the authorize dialog exactly, or Meta
   // rejects the code exchange.
   const redirectUri = new URL("/api/auth/instagram/callback", request.url).toString();
 
   try {
-    const tokens = await exchangeInstagramCode(code, redirectUri);
-    const db = getDb();
+    const tokens = await exchangeInstagramCode(code, redirectUri, {
+      clientId: credentials.clientId,
+      clientSecret: credentials.clientSecret,
+    });
     await saveConnectionTokens(db, nicheId, "instagram", tokens);
   } catch {
     return NextResponse.redirect(failureUrl);

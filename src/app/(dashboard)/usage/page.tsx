@@ -3,6 +3,7 @@ import { getDb } from "@/db/client";
 import { apiQuotaUsage, generationJobs, ideas, niches, videoProviders } from "@/db/schema";
 import { YOUTUBE_DEFAULT_DAILY_QUOTA } from "@/lib/platforms/youtube";
 import { EmptyState, PageHeader, Panel, PanelHeader, Stat } from "@/components/ui";
+import { getT } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,7 @@ function money(value: string | number | null | undefined): number {
  * provider and by niche -- estimated (ideas.estimated_cost, set at idea-creation time)
  * alongside actual (generation_jobs.actual_cost, only populated once a job completes). */
 export default async function UsagePage() {
+  const { t } = await getT();
   const db = getDb();
   const today = todayUtc();
 
@@ -66,24 +68,30 @@ export default async function UsagePage() {
   return (
     <>
       <PageHeader
-        eyebrow="Cost control"
-        title="Usage"
-        description="Today's per-provider API usage against known caps, plus running video-generation spend by provider and niche."
+        eyebrow={t.usage.eyebrow}
+        title={t.usage.title}
+        description={t.usage.description}
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Total estimated spend" value={`$${totalEstimated.toFixed(2)}`} hint="Sum of every idea's estimated cost" />
-        <Stat label="Total actual spend" value={`$${totalActual.toFixed(2)}`} hint="Sum of completed generation jobs" tone="accent" />
+        <Stat
+          label={t.usage.totalEstimated.label}
+          value={`$${totalEstimated.toFixed(2)}`}
+          hint={t.usage.totalEstimated.hint}
+        />
+        <Stat
+          label={t.usage.totalActual.label}
+          value={`$${totalActual.toFixed(2)}`}
+          hint={t.usage.totalActual.hint}
+          tone="accent"
+        />
       </div>
 
       <Panel className="mt-6">
-        <PanelHeader
-          title="API quota — today"
-          description="Only counters the app actually tracks. A provider absent here isn't metered yet, not necessarily unused."
-        />
+        <PanelHeader title={t.usage.quotaPanel.title} description={t.usage.quotaPanel.description} />
         <div className="px-6 py-6">
           {quotaRows.length === 0 ? (
-            <EmptyState title="No API usage recorded yet today" />
+            <EmptyState title={t.usage.noUsageToday} />
           ) : (
             <ul className="space-y-3">
               {quotaRows.map((row) => {
@@ -94,8 +102,7 @@ export default async function UsagePage() {
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <span className="text-sm font-medium capitalize">{row.provider}</span>
                       <span className="text-sm text-fg-muted tabular-nums">
-                        {row.unitsUsed.toLocaleString()}
-                        {cap ? ` / ${cap.toLocaleString()} units (${pct}%)` : " units · no cap configured"}
+                        {t.usage.quotaLine(row.unitsUsed.toLocaleString(), cap ? cap.toLocaleString() : null, pct)}
                       </span>
                     </div>
                     {cap ? (
@@ -115,10 +122,10 @@ export default async function UsagePage() {
       </Panel>
 
       <Panel className="mt-6">
-        <PanelHeader title="Spend by video provider" />
+        <PanelHeader title={t.usage.providerSpendTitle} />
         <div className="px-6 py-6">
           {providers.length === 0 ? (
-            <EmptyState title="No video providers configured yet" />
+            <EmptyState title={t.usage.noProviders} />
           ) : (
             <ul className="space-y-3">
               {providers.map((provider) => (
@@ -128,8 +135,10 @@ export default async function UsagePage() {
                 >
                   <span className="text-sm font-medium">{provider.name}</span>
                   <span className="text-sm text-fg-muted tabular-nums">
-                    Estimated ${estimatedByProviderMap.get(provider.id)?.toFixed(2) ?? "0.00"} · Actual $
-                    {actualByProviderMap.get(provider.id)?.toFixed(2) ?? "0.00"}
+                    {t.usage.spendLine(
+                      estimatedByProviderMap.get(provider.id)?.toFixed(2) ?? "0.00",
+                      actualByProviderMap.get(provider.id)?.toFixed(2) ?? "0.00",
+                    )}
                   </span>
                 </li>
               ))}
@@ -139,10 +148,10 @@ export default async function UsagePage() {
       </Panel>
 
       <Panel className="mt-6">
-        <PanelHeader title="Spend by niche" />
+        <PanelHeader title={t.usage.nicheSpendTitle} />
         <div className="px-6 py-6">
           {allNiches.length === 0 ? (
-            <EmptyState title="No niches configured yet" />
+            <EmptyState title={t.usage.noNiches} />
           ) : (
             <ul className="space-y-3">
               {allNiches.map((niche) => (
@@ -152,8 +161,10 @@ export default async function UsagePage() {
                 >
                   <span className="text-sm font-medium">{niche.name}</span>
                   <span className="text-sm text-fg-muted tabular-nums">
-                    Estimated ${estimatedByNicheMap.get(niche.id)?.toFixed(2) ?? "0.00"} · Actual $
-                    {actualByNicheMap.get(niche.id)?.toFixed(2) ?? "0.00"}
+                    {t.usage.spendLine(
+                      estimatedByNicheMap.get(niche.id)?.toFixed(2) ?? "0.00",
+                      actualByNicheMap.get(niche.id)?.toFixed(2) ?? "0.00",
+                    )}
                   </span>
                 </li>
               ))}

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import type { Dictionary } from "@/lib/i18n";
 import { cx } from "./ui/cx";
 
 type NavItem = {
@@ -12,23 +13,27 @@ type NavItem = {
   soon?: boolean;
 };
 
-const NAV: NavItem[] = [
-  { href: "/", label: "Overview", glyph: "◎" },
-  { href: "/niches", label: "Niches", glyph: "◇" },
-  { href: "/settings/providers", label: "Providers", glyph: "⬡" },
-  { href: "/history", label: "History", glyph: "≡" },
-  { href: "/usage", label: "Usage", glyph: "◧" },
-  { href: "/videos", label: "Videos", glyph: "▶", soon: true },
-  { href: "/schedule", label: "Schedule", glyph: "◷", soon: true },
-];
+function buildNav(dict: Dictionary["sidebar"]): NavItem[] {
+  return [
+    { href: "/", label: dict.nav.overview, glyph: "◎" },
+    { href: "/niches", label: dict.nav.niches, glyph: "◇" },
+    { href: "/settings/providers", label: dict.nav.providers, glyph: "⬡" },
+    { href: "/history", label: dict.nav.history, glyph: "≡" },
+    { href: "/socials", label: dict.nav.socials, glyph: "⚭" },
+    { href: "/usage", label: dict.nav.usage, glyph: "◧" },
+    { href: "/videos", label: dict.nav.videos, glyph: "▶", soon: true },
+    { href: "/schedule", label: dict.nav.schedule, glyph: "◷", soon: true },
+  ];
+}
 
 function isActive(pathname: string, href: string) {
   return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function Sidebar() {
+export function Sidebar({ dict }: { dict: Dictionary["sidebar"] }) {
   const pathname = usePathname();
   const router = useRouter();
+  const nav = buildNav(dict);
 
   async function logout() {
     await fetch("/api/logout", { method: "POST" });
@@ -43,13 +48,13 @@ export function Sidebar() {
           ✦
         </span>
         <span className="leading-tight">
-          <span className="block text-sm font-semibold tracking-tight">Content Engine</span>
-          <span className="block text-xs text-fg-subtle">automation console</span>
+          <span className="block text-sm font-semibold tracking-tight">{dict.brandName}</span>
+          <span className="block text-xs text-fg-subtle">{dict.brandTagline}</span>
         </span>
       </Link>
 
       <nav className="flex flex-1 flex-col gap-1">
-        {NAV.map((item) => {
+        {nav.map((item) => {
           const active = isActive(pathname, item.href);
           const content = (
             <>
@@ -64,7 +69,7 @@ export function Sidebar() {
               </span>
               <span className="flex-1">{item.label}</span>
               {item.soon ? (
-                <span className="text-[10px] tracking-wide text-fg-subtle uppercase">soon</span>
+                <span className="text-[10px] tracking-wide text-fg-subtle uppercase">{dict.soonTag}</span>
               ) : null}
             </>
           );
@@ -74,7 +79,7 @@ export function Sidebar() {
               <span
                 key={item.href}
                 className="flex cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-fg-subtle/70"
-                title="Lands in a later story"
+                title={dict.soonTooltip}
               >
                 {content}
               </span>
@@ -107,7 +112,7 @@ export function Sidebar() {
         <span className="w-4 text-center text-sm text-fg-subtle" aria-hidden>
           ⏻
         </span>
-        Sign out
+        {dict.signOut}
       </button>
     </aside>
   );

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Database } from "@/db/client";
 import { createTestDb } from "@/db/test-db";
 import { ActionNotFoundError, InvalidActionStateError } from "./errors";
-import { listScheduledPostsForVideo, schedulePost, SchedulingCapExceededError } from "./scheduling";
+import { listScheduledPostsForVideo, listUpcomingScheduledPosts, schedulePost, SchedulingCapExceededError } from "./scheduling";
 import { seedGenerationJob, seedIdea, seedNiche, seedProvider, seedScheduledPost, seedVideo } from "./test-helpers";
 
 describe("scheduling actions", () => {
@@ -134,5 +134,68 @@ describe("scheduling actions", () => {
     const rows = await listScheduledPostsForVideo(db, video.id);
 
     expect(rows.map((row) => row.platform)).toEqual(["tiktok", "instagram"]);
+  });
+
+  describe("listUpcomingScheduledPosts", () => {
+    it("returns future scheduled/awaiting/publishing posts, soonest first", async () => {
+      const { video, niche } = await seedReadyVideo({ tiktok: 5, instagram: 5, youtube: 5 });
+      const farFuture = new Date(Date.now() + 48 * 60 * 60 * 1000);
+      const nearFuture = new Date(Date.now() + 2 * 60 * 60 * 1000);
+      await seedScheduledPost(db, video.id, video.nicheId, {
+        platform: "instagram",
+        scheduledAt: farFuture,
+        status: "awaiting_platform_approval",
+      });
+      await seedScheduledPost(db, video.id, video.nicheId, {
+        platform: "tiktok",
+        scheduledAt: nearFuture,
+        status: "scheduled",
+      });
+
+      const upcoming = await listUpcomingScheduledPosts(db);
+
+      expect(upcoming.map((row) => row.post.platform)).toEqual(["tiktok", "instagram"]);
+      expect(upcoming.every((row) => row.nicheName === niche.name)).toBe(true);
+      expect(upcoming.every((row) => row.video.id === video.id)).toBe(true);
+    });
+
+    it("excludes posts already in the past", async () => {
+      const { video } = await seedReadyVideo();
+      await seedScheduledPost(db, video.id, video.nicheId, {
+        platform: "tiktok",
+        scheduledAt: new Date(Date.now() - 60 * 60 * 1000),
+        status: "scheduled",
+      });
+
+      const upcoming = await listUpcomingScheduledPosts(db);
+
+      expect(upcoming).toHaveLength(0);
+    });
+
+    it("excludes published and failed posts", async () => {
+      const { video } = await seedReadyVideo({ tiktok: 5, instagram: 5, youtube: 5 });
+      const soon = new Date(Date.now() + 60 * 60 * 1000);
+      await seedScheduledPost(db, video.id, video.nicheId, { platform: "tiktok", scheduledAt: soon, status: "published" });
+      await seedScheduledPost(db, video.id, video.nicheId, { platform: "instagram", scheduledAt: soon, status: "failed" });
+
+      const upcoming = await listUpcomingScheduledPosts(db);
+
+      expect(upcoming).toHaveLength(0);
+    });
+
+    it("caps the number of rows returned", async () => {
+      const { video } = await seedReadyVideo({ tiktok: 5, instagram: 5, youtube: 5 });
+      for (let i = 0; i < 5; i++) {
+        await seedScheduledPost(db, video.id, video.nicheId, {
+          platform: i % 2 === 0 ? "tiktok" : "instagram",
+          scheduledAt: new Date(Date.now() + (i + 1) * 60 * 60 * 1000),
+          status: "scheduled",
+        });
+      }
+
+      const upcoming = await listUpcomingScheduledPosts(db, 2);
+
+      expect(upcoming).toHaveLength(2);
+    });
   });
 });

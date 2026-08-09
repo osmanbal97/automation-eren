@@ -2,6 +2,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { niches, platformEnum, scheduledPostStatusEnum, scheduledPosts, videos, publishJobs } from "@/db/schema";
 import { Badge, type BadgeTone, Button, EmptyState, PageHeader, Panel, Select } from "@/components/ui";
+import { getT, toBcp47 } from "@/lib/i18n";
 import { retryPublishAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +27,7 @@ export default async function HistoryPage({
 }: {
   searchParams: Promise<{ niche?: string; platform?: string; status?: string }>;
 }) {
+  const { t, locale } = await getT();
   const { niche: nicheFilter, platform: platformFilter, status: statusFilter } = await searchParams;
   const db = getDb();
 
@@ -64,19 +66,19 @@ export default async function HistoryPage({
   return (
     <>
       <PageHeader
-        eyebrow="Publishing"
-        title="History"
-        description="Every scheduled post, newest first — what went out, what's pending, and what failed."
+        eyebrow={t.history.eyebrow}
+        title={t.history.title}
+        description={t.history.description}
       />
 
       <Panel className="mb-6 p-5">
         <form className="flex flex-wrap items-end gap-4" method="get">
           <label className="block">
             <span className="mb-1.5 block text-xs font-medium tracking-wide text-fg-muted uppercase">
-              Niche
+              {t.history.nicheLabel}
             </span>
             <Select name="niche" defaultValue={nicheFilter ?? ""} className="min-w-40">
-              <option value="">All niches</option>
+              <option value="">{t.history.allNiches}</option>
               {allNiches.map((niche) => (
                 <option key={niche.id} value={niche.id}>
                   {niche.name}
@@ -87,10 +89,10 @@ export default async function HistoryPage({
 
           <label className="block">
             <span className="mb-1.5 block text-xs font-medium tracking-wide text-fg-muted uppercase">
-              Platform
+              {t.history.platformLabel}
             </span>
             <Select name="platform" defaultValue={platformFilter ?? ""} className="min-w-36 capitalize">
-              <option value="">All platforms</option>
+              <option value="">{t.history.allPlatforms}</option>
               {PLATFORMS.map((platform) => (
                 <option key={platform} value={platform} className="capitalize">
                   {platform}
@@ -101,28 +103,26 @@ export default async function HistoryPage({
 
           <label className="block">
             <span className="mb-1.5 block text-xs font-medium tracking-wide text-fg-muted uppercase">
-              Status
+              {t.history.statusLabel}
             </span>
             <Select name="status" defaultValue={statusFilter ?? ""} className="min-w-44">
-              <option value="">All statuses</option>
+              <option value="">{t.history.allStatuses}</option>
               {STATUSES.map((status) => (
                 <option key={status} value={status}>
-                  {status.replaceAll("_", " ")}
+                  {t.status.post[status as keyof typeof t.status.post] ?? status}
                 </option>
               ))}
             </Select>
           </label>
 
           <Button type="submit" variant="secondary" size="sm">
-            Filter
+            {t.history.filter}
           </Button>
         </form>
       </Panel>
 
       {rows.length === 0 ? (
-        <EmptyState title="No scheduled posts match these filters">
-          Try widening the filters above, or schedule a video from a niche&apos;s schedule page.
-        </EmptyState>
+        <EmptyState title={t.history.emptyTitle}>{t.history.emptyBody}</EmptyState>
       ) : (
         <div className="space-y-3">
           {rows.map(({ post, video, nicheName }) => {
@@ -135,12 +135,14 @@ export default async function HistoryPage({
                     <Badge tone="idle" className="capitalize">
                       {post.platform}
                     </Badge>
-                    <Badge tone={STATUS_TONES[post.status] ?? "idle"}>{post.status.replaceAll("_", " ")}</Badge>
+                    <Badge tone={STATUS_TONES[post.status] ?? "idle"}>
+                      {t.status.post[post.status as keyof typeof t.status.post] ?? post.status}
+                    </Badge>
                   </div>
                   <p className="mt-1.5 max-w-2xl truncate text-sm text-fg-muted">{video.caption}</p>
                   <p className="mt-1 text-xs text-fg-subtle">
-                    Scheduled for {new Date(post.scheduledAt).toLocaleString()}
-                    {job?.platformPostId ? ` · platform post ${job.platformPostId}` : ""}
+                    {t.history.scheduledFor(new Date(post.scheduledAt).toLocaleString(toBcp47(locale)))}
+                    {job?.platformPostId ? ` · ${t.history.platformPost(job.platformPostId)}` : ""}
                   </p>
                   {post.status === "failed" && job?.lastError ? (
                     <p className="mt-1.5 text-xs text-danger">{job.lastError}</p>
@@ -150,7 +152,7 @@ export default async function HistoryPage({
                 {post.status === "failed" ? (
                   <form action={retryPublishAction.bind(null, post.id)}>
                     <Button type="submit" variant="secondary" size="sm">
-                      Retry now
+                      {t.history.retryNow}
                     </Button>
                   </form>
                 ) : null}
