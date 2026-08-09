@@ -381,8 +381,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 25,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "src/app/(dashboard)/history/page.tsx: scheduledPosts joined with videos/niches, filterable by niche/platform/status via GET query params. Latest publish_jobs row per post looked up for platformPostId / lastError. Failed posts show the captured error plus a Retry now button wired to retryPublishAction (history/actions.ts), which calls publishScheduledPost via buildPlatformAdapters -- the exact same action layer the cron publish worker uses."
     },
     {
       "id": "US-026",
@@ -395,8 +395,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 26,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "src/app/(dashboard)/usage/page.tsx: api_quota_usage rows for today shown against KNOWN_DAILY_CAPS (currently just YouTube's 10,000-unit publish quota -- other providers show usage with no cap configured rather than a guessed number). Spend section sums ideas.estimated_cost and generation_jobs.actual_cost, broken down by video provider and by niche, plus grand totals as Stat cards."
     },
     {
       "id": "US-027",

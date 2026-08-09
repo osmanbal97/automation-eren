@@ -943,7 +943,44 @@ still parallel wall-clock-wise, without the base-ref risk.
   own tool calls kept working fine afterward. US-025 and US-026 agents had done no
   file writes yet; US-027's partial work was salvaged and finished by hand as above.
 
-Next: US-025 (post history dashboard) and US-026 (quota/spend dashboard) remain, to be
-built directly rather than via further background agents this session. The full manual
-Postgres/build/curl E2E pass at the PRD phase boundary (flagged as due after US-020
-through US-024 landed) is still outstanding and should follow once all 27 stories pass.
+[US-025 / US-026] Post history dashboard + quota/spend dashboard
+- Built directly (no background agents) after the session-limit interruption above,
+  reusing the /history and /usage nav slots pre-reserved in Sidebar.tsx.
+- History (src/app/(dashboard)/history/page.tsx): scheduled_posts joined with videos
+  and niches, newest-scheduled-first, filterable by niche/platform/status via a plain
+  GET form (?niche=&platform=&status=, no client JS needed). The latest publish_jobs
+  row per post is looked up separately (one query, grouped in memory by
+  scheduledPostId) to show either the platform post id on success or the captured
+  error on a permanently failed post. Retry now (only shown when status is "failed")
+  posts to retryPublishAction (history/actions.ts), which calls publishScheduledPost
+  via buildPlatformAdapters -- the identical action layer path the cron publish
+  worker uses, so a manual retry behaves exactly like an automatic one and works
+  regardless of the post's current status since publishScheduledPost itself doesn't
+  gate on it.
+- Usage (src/app/(dashboard)/usage/page.tsx): api_quota_usage rows for today's UTC
+  date, shown against a small KNOWN_DAILY_CAPS map -- today that's only YouTube's
+  10,000-unit publish quota (YOUTUBE_DEFAULT_DAILY_QUOTA), since TikTok/Instagram's
+  publish adapters don't consume this counter yet. A provider with usage but no known
+  cap is shown as "no cap configured" rather than a guessed number. Spend is shown
+  two ways per breakdown: estimated (sum of ideas.estimated_cost, set at
+  idea-generation time) and actual (sum of generation_jobs.actual_cost, only
+  populated once a job completes), broken down by video provider and by niche, plus
+  grand totals as Stat cards at the top.
+- Neither app/**/actions.ts file in this codebase has a dedicated test file (checked
+  niches/, schedule/, videos/, ideas/ before writing history/actions.ts) -- the
+  underlying src/actions/* layer carries the test coverage instead, and
+  retryPublishAction is a thin, untested-by-convention wrapper around the already
+  fully-tested publishScheduledPost. No page-level (RSC) tests exist anywhere in this
+  app either, so none were added for history/page.tsx or usage/page.tsx; next build
+  is this repo's only automated check on page-level code, matching every other
+  dashboard screen.
+- Gate: tsc --noEmit clean, eslint . clean, vitest run 310/310 (unchanged -- no new
+  test files, consistent with the convention above), next build green with two new
+  routes (/history, /usage).
+
+All 27 user stories in ralph/prd.json now have passes: true.
+
+Next: the full manual Postgres/build/curl E2E pass at the PRD phase boundary (flagged
+as due after US-020 through US-024 landed, and again after the OAuth connect flows)
+is still outstanding and is the one item left before calling this PRD fully done --
+it has not yet been performed in this session.
