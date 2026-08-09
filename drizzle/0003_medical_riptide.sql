@@ -1,0 +1,1 @@
+ALTER TABLE "niches" ADD COLUMN "reference_guidance" text;

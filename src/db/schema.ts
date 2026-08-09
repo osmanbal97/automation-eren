@@ -77,6 +77,8 @@ export const niches = pgTable("niches", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   themeGuidance: text("theme_guidance").notNull(),
+  /** Operator's free-text description of a reference video whose style ideas should emulate (US-027). Optional. */
+  referenceGuidance: text("reference_guidance"),
   targetPostsPerDay: jsonb("target_posts_per_day").notNull().default({}),
   defaultProviderId: uuid("default_provider_id").references(() => videoProviders.id),
   defaultGenerationSpecs: jsonb("default_generation_specs").notNull().default({}),

@@ -14,6 +14,7 @@ import { notifyPendingIdeas } from "@/lib/telegram-idea-card";
 const nicheFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
   themeGuidance: z.string().min(1, "Theme guidance is required"),
+  referenceGuidance: z.string().optional().default(""),
   tiktokPerDay: z.coerce.number().int().min(0),
   instagramPerDay: z.coerce.number().int().min(0),
   youtubePerDay: z.coerce.number().int().min(0),
@@ -28,6 +29,7 @@ function parseNicheForm(formData: FormData) {
   return {
     name: parsed.name,
     themeGuidance: parsed.themeGuidance,
+    referenceGuidance: parsed.referenceGuidance.trim().length > 0 ? parsed.referenceGuidance : null,
     targetPostsPerDay: {
       tiktok: parsed.tiktokPerDay,
       instagram: parsed.instagramPerDay,

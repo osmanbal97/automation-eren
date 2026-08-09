@@ -20,6 +20,10 @@ export interface NicheGenerationSpecs {
 export interface NicheInput {
   name: string;
   themeGuidance: string;
+  /** Optional description of a reference video whose style idea generation should emulate
+   * (US-027). Omit or pass null/undefined for niches that don't need it -- behavior is
+   * identical to before this field existed. */
+  referenceGuidance?: string | null;
   targetPostsPerDay: TargetPostsPerDay;
   defaultProviderId: string | null;
   defaultGenerationSpecs: NicheGenerationSpecs;
@@ -44,6 +48,7 @@ export async function listNichesWithConnections(db: Database) {
       id: niches.id,
       name: niches.name,
       themeGuidance: niches.themeGuidance,
+      referenceGuidance: niches.referenceGuidance,
       targetPostsPerDay: niches.targetPostsPerDay,
       defaultProviderId: niches.defaultProviderId,
       defaultGenerationSpecs: niches.defaultGenerationSpecs,
@@ -73,6 +78,7 @@ export async function createNiche(db: Database, input: NicheInput) {
     .values({
       name: input.name,
       themeGuidance: input.themeGuidance,
+      referenceGuidance: input.referenceGuidance ?? null,
       targetPostsPerDay: input.targetPostsPerDay,
       defaultProviderId: input.defaultProviderId,
       defaultGenerationSpecs: input.defaultGenerationSpecs,
@@ -88,6 +94,7 @@ export async function updateNiche(db: Database, nicheId: string, input: NicheInp
     .set({
       name: input.name,
       themeGuidance: input.themeGuidance,
+      referenceGuidance: input.referenceGuidance ?? null,
       targetPostsPerDay: input.targetPostsPerDay,
       defaultProviderId: input.defaultProviderId,
       defaultGenerationSpecs: input.defaultGenerationSpecs,

@@ -75,6 +75,42 @@ describe("generateIdeas", () => {
     expect(all).toHaveLength(2);
   });
 
+  it("includes a distinct reference-guidance section in the prompt when the niche has one (US-027)", async () => {
+    const niche = await seedNiche(db, {
+      referenceGuidance: "slow-motion rain on a window, teal-and-amber grade",
+    });
+    const client = fakeClaudeClient(JSON.stringify(SAMPLE_IDEAS));
+
+    await generateIdeas(db, niche.id, client, 2);
+
+    expect(client.complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining("slow-motion rain on a window, teal-and-amber grade"),
+      }),
+    );
+    const { prompt } = (client.complete as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(prompt).toContain("Reference video style guidance");
+    // Distinct from theme guidance, not concatenated into it.
+    expect(prompt.indexOf(niche.themeGuidance)).toBeLessThan(
+      prompt.indexOf("Reference video style guidance"),
+    );
+  });
+
+  it("prompt is unchanged when referenceGuidance is null (regression pin for US-027)", async () => {
+    const niche = await seedNiche(db, { referenceGuidance: null });
+    const client = fakeClaudeClient(JSON.stringify(SAMPLE_IDEAS));
+
+    await generateIdeas(db, niche.id, client, 2);
+
+    const { prompt } = (client.complete as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(prompt).not.toContain("Reference video style guidance");
+    expect(prompt).toBe(
+      `Generate exactly 2 distinct short-form video ideas for this niche:\n\n` +
+        `${niche.themeGuidance}\n\n` +
+        "Respond with only the JSON array.",
+    );
+  });
+
   it("saves ideas with no estimated cost when the niche has no default provider", async () => {
     const niche = await seedNiche(db, { defaultProviderId: null });
     const client = fakeClaudeClient(JSON.stringify(SAMPLE_IDEAS));

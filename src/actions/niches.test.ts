@@ -33,6 +33,31 @@ describe("niche actions", () => {
       expect(niche.targetPostsPerDay).toEqual(targetPostsPerDay);
       expect(niche.defaultGenerationSpecs).toEqual(specs);
     });
+
+    it("defaults referenceGuidance to null when omitted", async () => {
+      const niche = await createNiche(db, {
+        name: "No Reference",
+        themeGuidance: "generic guidance",
+        targetPostsPerDay,
+        defaultProviderId: null,
+        defaultGenerationSpecs: specs,
+      });
+
+      expect(niche.referenceGuidance).toBeNull();
+    });
+
+    it("stores referenceGuidance when given (US-027)", async () => {
+      const niche = await createNiche(db, {
+        name: "Styled Niche",
+        themeGuidance: "generic guidance",
+        referenceGuidance: "slow-motion rain on a window, teal-and-amber grade",
+        targetPostsPerDay,
+        defaultProviderId: null,
+        defaultGenerationSpecs: specs,
+      });
+
+      expect(niche.referenceGuidance).toBe("slow-motion rain on a window, teal-and-amber grade");
+    });
   });
 
   describe("getNiche", () => {
@@ -58,6 +83,30 @@ describe("niche actions", () => {
       expect(updated.name).toBe("Trippy POV v2");
       expect(updated.defaultProviderId).toBeNull();
       expect(updated.updatedAt.getTime()).toBeGreaterThanOrEqual(niche.updatedAt.getTime());
+    });
+
+    it("can set and then clear referenceGuidance back to null (US-027)", async () => {
+      const niche = await seedNiche(db);
+
+      const withReference = await updateNiche(db, niche.id, {
+        name: niche.name,
+        themeGuidance: niche.themeGuidance,
+        referenceGuidance: "macro shots of dew on leaves at dawn",
+        targetPostsPerDay,
+        defaultProviderId: null,
+        defaultGenerationSpecs: specs,
+      });
+      expect(withReference.referenceGuidance).toBe("macro shots of dew on leaves at dawn");
+
+      const cleared = await updateNiche(db, niche.id, {
+        name: niche.name,
+        themeGuidance: niche.themeGuidance,
+        referenceGuidance: null,
+        targetPostsPerDay,
+        defaultProviderId: null,
+        defaultGenerationSpecs: specs,
+      });
+      expect(cleared.referenceGuidance).toBeNull();
     });
 
     it("throws ActionNotFoundError for an unknown id", async () => {

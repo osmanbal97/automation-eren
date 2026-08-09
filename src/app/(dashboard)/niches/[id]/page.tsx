@@ -267,6 +267,7 @@ export default async function EditNichePage({ params }: { params: Promise<{ id: 
             defaults={{
               name: niche.name,
               themeGuidance: niche.themeGuidance,
+              referenceGuidance: niche.referenceGuidance,
               targetPostsPerDay: niche.targetPostsPerDay as TargetPostsPerDay,
               defaultProviderId: niche.defaultProviderId,
               defaultGenerationSpecs: niche.defaultGenerationSpecs as NicheGenerationSpecs,

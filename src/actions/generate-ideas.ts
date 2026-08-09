@@ -27,7 +27,11 @@ export interface GenerateIdeasOptions {
   random?: () => number;
 }
 
-function buildPrompt(themeGuidance: string, count: number): { system: string; prompt: string } {
+function buildPrompt(
+  themeGuidance: string,
+  count: number,
+  referenceGuidance?: string | null,
+): { system: string; prompt: string } {
   const system =
     "You are a creative director for a short-form AI video content channel. You generate " +
     "concrete, production-ready video concepts, not vague ideas. Respond with ONLY a JSON " +
@@ -37,9 +41,21 @@ function buildPrompt(themeGuidance: string, count: number): { system: string; pr
     'video model (camera framing, subject, action, style, lighting). "caption" is the social ' +
     'media post caption. "hashtags" are plain words/phrases without the leading "#".';
 
+  // Reference guidance (US-027) gets its own clearly labelled section rather than being
+  // folded into theme guidance, so Claude treats it as "emulate this specific reference"
+  // rather than "another fact about the niche". When absent, the prompt is byte-identical
+  // to before this field existed -- see the regression test pinning that.
+  const referenceSection =
+    referenceGuidance && referenceGuidance.trim().length > 0
+      ? "\n\nReference video style guidance (the operator described a specific reference " +
+        "video -- either in their own words, or via a description another AI wrote after " +
+        "watching it -- match the ideas' look, mood and subject to this reference, not just " +
+        `the theme below):\n${referenceGuidance}`
+      : "";
+
   const prompt =
     `Generate exactly ${count} distinct short-form video ideas for this niche:\n\n` +
-    `${themeGuidance}\n\n` +
+    `${themeGuidance}${referenceSection}\n\n` +
     "Respond with only the JSON array.";
 
   return { system, prompt };
@@ -76,7 +92,7 @@ export async function generateIdeas(
   const specs = niche.defaultGenerationSpecs as GenerationSpecs;
   const estimatedCost = provider ? estimateCost(provider, specs) : undefined;
 
-  const { system, prompt } = buildPrompt(niche.themeGuidance, count);
+  const { system, prompt } = buildPrompt(niche.themeGuidance, count, niche.referenceGuidance);
 
   const response = await callWithRetry({
     provider: "anthropic",

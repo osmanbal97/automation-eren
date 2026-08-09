@@ -18,6 +18,7 @@ export function NicheFormFields({
   defaults?: {
     name: string;
     themeGuidance: string;
+    referenceGuidance?: string | null;
     targetPostsPerDay: TargetPostsPerDay;
     defaultProviderId: string | null;
     defaultGenerationSpecs: NicheGenerationSpecs;
@@ -36,6 +37,18 @@ export function NicheFormFields({
           rows={3}
           defaultValue={defaults?.themeGuidance}
           placeholder="Hyper-saturated first-person psychedelia, impossible architecture, slow dolly moves…"
+        />
+      </Field>
+
+      <Field
+        label="Reference style guidance"
+        hint="Optional. Describe a specific reference video's look, mood and subject -- in your own words, or paste a description another AI wrote after watching it. Ideas will be styled after this instead of generic guidance."
+      >
+        <Textarea
+          name="referenceGuidance"
+          rows={3}
+          defaultValue={defaults?.referenceGuidance ?? ""}
+          placeholder="Slow-motion macro shots of rain on a window, muted teal-and-amber grade, a cat silhouetted against the glow…"
         />
       </Field>
 

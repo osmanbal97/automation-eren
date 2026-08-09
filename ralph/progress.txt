@@ -895,8 +895,55 @@ still parallel wall-clock-wise, without the base-ref risk.
   271/28 -- 34 new OAuth tests: 10 TikTok, 12 Instagram, 12 YouTube), next build green with
   all six new routes (151 B each, 103 kB First Load JS).
 
-Next: US-025 (post history dashboard), US-026 (quota/spend dashboard) and US-027 (reference-
-video description guidance for niches) are the three remaining open stories. The full publish
-pipeline (US-020 through US-024) plus all three connect flows have now landed, which is the
-PRD phase boundary where the lightened verification policy calls for a full manual
-Postgres/build/curl E2E pass -- that is due before or alongside the dashboard stories.
+[US-027] Reference-video description guidance for niches
+- Added niches.reference_guidance (nullable text, migration 0003_medical_riptide.sql).
+  Made optional (not required-but-nullable) on NicheInput specifically so the field
+  degrades to "behaves exactly as today" when omitted, and so the pre-existing
+  NicheInput call sites in niches.test.ts kept compiling unmodified.
+- createNiche/updateNiche both write `input.referenceGuidance ?? null`; the niche edit
+  form (NicheFormFields.tsx) gained a "Reference style guidance" textarea between Theme
+  guidance and the platform/day grid, wired through the same zod parseNicheForm path as
+  every other field.
+- generateIdeas' buildPrompt appends reference guidance as its own clearly labelled
+  section ("Reference video style guidance...") after theme guidance, not concatenated
+  into it, so Claude treats it as "emulate this specific reference" rather than another
+  fact about the niche. When null/empty the prompt is byte-identical to before this
+  field existed -- pinned with an exact-string-equality regression test.
+- Attempted this story via a background agent in the shared working directory (see
+  below); it was killed mid-task by an account-level session limit after writing the
+  schema/migration/niches.ts but before the UI, prompt or tests. Its one defect (a
+  required rather than optional NicheInput field, which would have broken tsc against
+  the existing test call sites) was found and fixed by hand; the rest of the story
+  (form field, generate-ideas.ts, all five new tests) was completed directly.
+- Gate: tsc --noEmit clean, eslint . clean, vitest run 310/310 passing (31 files, up
+  from 305), next build green.
+
+[Process note] Isolated-worktree base-ref hazard, confirmed unfixable this session
+- Attempted "do the last 3 concurrent using worktree" for US-025/026/027 using the
+  Agent tool's isolation: "worktree" mode. origin/main is gone/stale and local main
+  sits 20+ commits behind at a Phase-0 commit, and isolation defaults to branching
+  from origin/<default-branch> ("fresh" baseRef) -- so every isolated worktree landed
+  on the stale Phase-0 commit instead of current work.
+- Tried writing .claude/settings.json with {"worktree": {"baseRef": "head"}} inside
+  the worktree to fix this. It did not work -- all three isolated agents still
+  reported the same stale HEAD. Removed the file rather than leave a non-functional
+  fix in the tree. Unresolved for any future isolated-worktree attempt in this repo;
+  worth a look at whether the setting needs to live somewhere else or be set before
+  the worktree pool is created.
+- The mandatory base-check instruction embedded in each agent's prompt (git log
+  --oneline -3, compare HEAD against a known-good sha, abort with a fixed message on
+  mismatch) worked exactly as intended: all three agents self-aborted immediately
+  with zero file writes and zero git commands run, rather than silently building on
+  the wrong foundation.
+- Fell back to the same shared-directory concurrent-agent pattern used successfully
+  for US-021/022/023 (disjoint file scopes, no git commands, sidebar nav slots for
+  /history and /usage pre-reserved in a standalone commit so neither agent needed to
+  touch Sidebar.tsx). Mid-task, all three were killed by an account-level session
+  limit ("You've hit your session limit"), unrelated to the code -- the main session's
+  own tool calls kept working fine afterward. US-025 and US-026 agents had done no
+  file writes yet; US-027's partial work was salvaged and finished by hand as above.
+
+Next: US-025 (post history dashboard) and US-026 (quota/spend dashboard) remain, to be
+built directly rather than via further background agents this session. The full manual
+Postgres/build/curl E2E pass at the PRD phase boundary (flagged as due after US-020
+through US-024 landed) is still outstanding and should follow once all 27 stories pass.

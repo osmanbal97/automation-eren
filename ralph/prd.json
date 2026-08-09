@@ -412,8 +412,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 27,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added niches.reference_guidance (nullable text, optional in NicheInput). Niche form gained a Reference style guidance textarea between Theme guidance and platform caps. generateIdeas buildPrompt appends a distinct labelled Reference video style guidance section when present; byte-identical prompt (regression-pinned) when absent. 5 new tests (niches.test.ts x3, generate-ideas.test.ts x2), all passing."
     }
   ]
 }
