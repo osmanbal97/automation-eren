@@ -980,7 +980,40 @@ still parallel wall-clock-wise, without the base-ref risk.
 
 All 27 user stories in ralph/prd.json now have passes: true.
 
-Next: the full manual Postgres/build/curl E2E pass at the PRD phase boundary (flagged
-as due after US-020 through US-024 landed, and again after the OAuth connect flows)
-is still outstanding and is the one item left before calling this PRD fully done --
-it has not yet been performed in this session.
+[FINAL E2E] Full manual Postgres/build/curl pass at the PRD-complete boundary
+- Real Postgres 16 via Docker/OrbStack (ralph-e2e-pg container, port 55432, isolated
+  from any real/production DB), a fresh .env with dummy/test secrets only (confirmed
+  gitignored: `git check-ignore -v .env` -> .gitignore:12), all 4 Drizzle migrations
+  applied cleanly via `drizzle-kit migrate`.
+- next build succeeded (typecheck+lint clean as part of it); next start -p 3411 run as
+  a background task and driven with individual curl calls (compound/looped curl
+  scripts and heredocs are rejected by this environment's worktree-isolation guard --
+  worked around by issuing one plain command per Bash call throughout, and by using
+  the Write tool instead of `cat > file << EOF` heredocs).
+- Verified via curl: unauthenticated / and /history -> 307 redirect; /api/cron/publish
+  with no/wrong/correct CRON_SECRET -> 401/401/200 with a correct JSON summary body;
+  POST /api/login with wrong/correct password -> 401 / 200 + a proper
+  HttpOnly;Secure;SameSite=lax session cookie; all 5 authenticated dashboard routes
+  (/, /niches, /settings/providers, /history, /usage) -> 200, with /history and /usage
+  bodies grepped to confirm correct, crash-free empty-state copy against the genuinely
+  empty database.
+- Also exercised the mutation path directly (not just page loads), specifically to
+  validate US-027's new referenceGuidance column against real Postgres rather than
+  only pglite: a standalone script (scripts/e2e-check.ts, written via the Write tool,
+  run with `npx tsx --env-file=.env`, deleted afterward) called createNiche (with
+  referenceGuidance set) -> getNiche (confirmed exact round-trip) -> generateIdeas
+  (fake Claude client, produced a pending_review idea) -> updateNiche (cleared
+  referenceGuidance back to null) -- all four succeeded with no errors.
+- Torn down afterward: `docker stop/rm ralph-e2e-pg`, background next-start task
+  stopped. .env left in place (gitignored, dummy secrets only) as a convenience for
+  any future local E2E pass.
+- This closes the standing verification policy's "full E2E pass at phase boundaries"
+  obligation, flagged as outstanding since US-020..US-024 and again after the OAuth
+  connect-flow stories. All 27 user stories are implemented, gated (tsc/eslint/vitest
+  per story), and now also verified end-to-end against real Postgres + a production
+  build. The PRD (tasks/prd-ai-video-content-automation.md) is complete.
+
+Next: no backlog stories remain. Any future work is either a genuinely new feature
+request from the operator, or hardening items already flagged inline above (e.g. the
+US-021/022/023 adapters' inline ASSUMPTION comments about exact provider error codes,
+to be revisited once live TikTok/Meta/Google credentials exist).
