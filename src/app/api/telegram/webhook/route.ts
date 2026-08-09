@@ -1,17 +1,37 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
+import { getDb } from "@/db/client";
+import { createDrizzleErrorLogStore } from "@/lib/error-log";
+import { createTelegramClient } from "@/lib/telegram-client";
+import { handleTelegramWebhook, processTelegramUpdate, type TelegramUpdate } from "@/lib/telegram-webhook";
 
 /**
- * Stub Telegram webhook receiver: proves the /api/telegram/webhook path is
- * reachable without the dashboard password cookie, gated instead by the
- * secret token Telegram echoes back in X-Telegram-Bot-Api-Secret-Token.
- * Full fast-ack + update handling lands in US-013.
+ * Telegram webhook receiver (US-013). Auth + fast-ack logic lives in
+ * handleTelegramWebhook so it's unit-testable without Next's request-scoped `after()`
+ * (which throws if invoked outside a real request); this route is just the thin
+ * adapter that wires real env vars, a real DB, and Next's `after` into it.
  */
 export async function POST(request: NextRequest) {
-  const secretHeader = request.headers.get("x-telegram-bot-api-secret-token");
+  const update = (await request.json()) as TelegramUpdate;
 
-  if (!process.env.TELEGRAM_WEBHOOK_SECRET || secretHeader !== process.env.TELEGRAM_WEBHOOK_SECRET) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const result = handleTelegramWebhook({
+    webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET,
+    secretHeader: request.headers.get("x-telegram-bot-api-secret-token"),
+    update,
+    scheduleAsync: after,
+    processUpdate: async (u) => {
+      const botToken = process.env.TELEGRAM_BOT_TOKEN;
+      if (!botToken) {
+        return;
+      }
+      const db = getDb();
+      const telegram = createTelegramClient({ botToken, errorLogStore: createDrizzleErrorLogStore(db) });
+      try {
+        await processTelegramUpdate(db, telegram, u);
+      } catch (error) {
+        console.error("Failed to process Telegram update", error);
+      }
+    },
+  });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json(result.body, { status: result.status });
 }

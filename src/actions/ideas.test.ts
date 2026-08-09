@@ -2,7 +2,14 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { Database } from "@/db/client";
 import { createTestDb } from "@/db/test-db";
 import { ActionNotFoundError, InvalidActionStateError } from "./errors";
-import { approveIdea, editIdeaCaption, editIdeaPrompt, rejectIdea, setIdeaProvider } from "./ideas";
+import {
+  approveIdea,
+  editIdeaCaption,
+  editIdeaPrompt,
+  rejectIdea,
+  setIdeaGenerationSpecs,
+  setIdeaProvider,
+} from "./ideas";
 import { seedIdea, seedNiche, seedProvider } from "./test-helpers";
 
 describe("idea actions", () => {
@@ -74,5 +81,68 @@ describe("idea actions", () => {
 
     expect(updated.providerId).toBe(provider.id);
     expect(updated.updatedVia).toBe("telegram");
+  });
+
+  it("setIdeaProvider recomputes estimated_cost once generation_specs are already set", async () => {
+    const niche = await seedNiche(db);
+    const idea = await seedIdea(db, niche.id, {
+      generationSpecs: { resolution: "1080x1920", durationSeconds: 8, aspectRatio: "9:16" },
+    });
+    const provider = await seedProvider(db, { pricingModel: "per_second", unitPrice: "0.20" });
+
+    const updated = await setIdeaProvider(db, idea.id, provider.id, "web");
+
+    // per_second pricing, $0.20/s * 8s = $1.60
+    expect(updated.estimatedCost).toBe("1.6000");
+  });
+
+  it("setIdeaProvider leaves estimated_cost null when generation_specs aren't filled in yet", async () => {
+    const niche = await seedNiche(db);
+    const idea = await seedIdea(db, niche.id);
+    const provider = await seedProvider(db);
+
+    const updated = await setIdeaProvider(db, idea.id, provider.id, "web");
+
+    expect(updated.estimatedCost).toBeNull();
+  });
+
+  it("setIdeaGenerationSpecs updates specs and records the channel", async () => {
+    const niche = await seedNiche(db);
+    const idea = await seedIdea(db, niche.id);
+    const specs = { resolution: "1080x1920", durationSeconds: 10, aspectRatio: "9:16" };
+
+    const updated = await setIdeaGenerationSpecs(db, idea.id, specs, "telegram");
+
+    expect(updated.generationSpecs).toEqual(specs);
+    expect(updated.updatedVia).toBe("telegram");
+  });
+
+  it("setIdeaGenerationSpecs recomputes estimated_cost once a provider is already set", async () => {
+    const niche = await seedNiche(db);
+    const provider = await seedProvider(db, { pricingModel: "per_second", unitPrice: "0.20" });
+    const idea = await seedIdea(db, niche.id, { providerId: provider.id });
+
+    const updated = await setIdeaGenerationSpecs(
+      db,
+      idea.id,
+      { resolution: "1080x1920", durationSeconds: 8, aspectRatio: "9:16" },
+      "web",
+    );
+
+    expect(updated.estimatedCost).toBe("1.6000");
+  });
+
+  it("setIdeaGenerationSpecs leaves estimated_cost null when there's no provider yet", async () => {
+    const niche = await seedNiche(db);
+    const idea = await seedIdea(db, niche.id);
+
+    const updated = await setIdeaGenerationSpecs(
+      db,
+      idea.id,
+      { resolution: "1080x1920", durationSeconds: 8, aspectRatio: "9:16" },
+      "web",
+    );
+
+    expect(updated.estimatedCost).toBeNull();
   });
 });

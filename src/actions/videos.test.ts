@@ -3,7 +3,7 @@ import type { Database } from "@/db/client";
 import { createTestDb } from "@/db/test-db";
 import { ActionNotFoundError, InvalidActionStateError } from "./errors";
 import { seedGenerationJob, seedIdea, seedNiche, seedProvider, seedVideo } from "./test-helpers";
-import { approveVideo, editVideoCaption, rejectVideo } from "./videos";
+import { approveVideo, editVideoCaption, editVideoHashtags, rejectVideo } from "./videos";
 
 describe("video actions", () => {
   let db: Database;
@@ -58,5 +58,20 @@ describe("video actions", () => {
 
     expect(updated.caption).toBe("updated caption");
     expect(updated.updatedVia).toBe("telegram");
+  });
+
+  it("editVideoHashtags updates the hashtag list and records the channel", async () => {
+    const video = await seedPendingVideo();
+
+    const updated = await editVideoHashtags(db, video.id, ["trippy", "pov"], "web");
+
+    expect(updated.hashtags).toEqual(["trippy", "pov"]);
+    expect(updated.updatedVia).toBe("web");
+  });
+
+  it("editVideoHashtags throws ActionNotFoundError for an unknown id", async () => {
+    await expect(
+      editVideoHashtags(db, "00000000-0000-0000-0000-000000000000", ["x"], "web"),
+    ).rejects.toThrow(ActionNotFoundError);
   });
 });

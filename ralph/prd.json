@@ -90,8 +90,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 6,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "video_providers table (from US-002) already had name/adapter_key/pricing_model/unit_price/default_specs/enabled. Added src/db/seed-providers.ts: idempotent upsert (onConflictDoUpdate on adapter_key) seeding Higgsfield (per_second, $0.20, enabled) and Nano Banana / Omni (per_generation / per_credit, disabled placeholders) with sane default_specs. Wired as `npm run db:seed:providers` (tsx). Added /settings/providers server component listing all providers with a PRICING_LABELS-mapped pricing model, unit price, and an Enabled/Disabled badge, with an empty-state hint to run the seed script. Found and fixed a real bug while verifying in a fresh worktree checkout: .gitignore excluded /drizzle/meta, which holds the migration journal (_journal.json + snapshots) that drizzle-orm's migrate() requires -- fresh clones/CI/worktrees would fail to migrate. Un-ignored and committed drizzle/meta. No dev-browser skill is available in this environment, so verified end-to-end manually: spun up a temp local Postgres 17 instance, ran drizzle-kit migrate + the seed script against it, built and started the app (next build/next start), logged in through the real password gate via curl, and fetched /settings/providers -- confirmed the rendered HTML shows Higgsfield/Nano Banana/Omni with correct pricing labels, unit prices, and enabled state, then tore the temp instance down. tsc --noEmit clean, eslint . clean, vitest run 45/45 passing (this run also caught and fixed the drizzle/meta gitignore bug via the same fresh-checkout test failure)."
     },
     {
       "id": "US-007",
@@ -106,8 +106,8 @@
         "Tests pass"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "src/lib/video-providers/types.ts: GenerationSpecs, VideoJobStatus (mirrors generation_job_status enum), VideoResult, VideoProvider interface (submit/getStatus/getResult), typed ProviderApiError. src/lib/video-providers/higgsfield.ts: HiggsfieldProvider implements VideoProvider via callWithRetry (US-004); normalizeStatus() maps raw API status strings onto our 4-value enum (documented as an assumption to revisit once we have a live account/real API docs -- no Higgsfield API access at implementation time), throws on unrecognized statuses; retry tuning (maxAttempts/baseDelayMs/sleep/random) is constructor-injectable for deterministic tests. src/lib/video-providers/registry.ts: getVideoProvider(adapterKey) maps video_providers.adapter_key to a live instance; 'higgsfield' resolves to HiggsfieldProvider (reads HIGGSFIELD_API_KEY from env, throws a clear error if missing); 'nano_banana'/'omni' throw a typed ProviderNotImplementedError (distinct from UnknownProviderError for a genuinely unregistered key) since they're disabled placeholders per US-006. 15 unit tests (higgsfield.test.ts: submit request shape, all 4 status mappings, getResult happy path, getResult-before-video_url error, 5xx retry-then-exhaust via injected fast sleep, non-retryable 4xx throws ProviderApiError without retrying, unrecognized status throws; registry.test.ts: resolves higgsfield, missing-API-key error, not-implemented placeholders, unknown key) against a mocked fetch. tsc --noEmit clean, eslint . clean, vitest run 60/60 passing."
     },
     {
       "id": "US-008",
@@ -120,8 +120,8 @@
         "Tests pass"
       ],
       "priority": 8,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "src/lib/cost-estimator.ts: estimateCost(provider, specs) -- per_second multiplies unitPrice*durationSeconds, per_generation returns the flat unitPrice, per_credit multiplies unitPrice*(specs.credits ?? 1) (added an optional `credits` field to GenerationSpecs for this, defaulting to 1 generation = 1 credit when a provider doesn't specify). Accepts unitPrice as either a JS number or the numeric-as-string shape Drizzle returns for `numeric` columns. Result rounded to 4 decimal places to match the estimated_cost/actual_cost/unit_price numeric(10,4) columns. Exhaustive switch with a `never` check so a future pricing model addition fails to typecheck until handled here. 6 unit tests covering all three pricing models, the credits-omitted default, numeric vs string unitPrice input, and rounding. tsc --noEmit clean, eslint . clean, vitest run 66/66 passing."
     },
     {
       "id": "US-009",
@@ -134,8 +134,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 9,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "src/actions/niches.ts: getNiche/listNichesWithConnections/createNiche/updateNiche/deleteNiche. No channel tracking here per US-005's explicit scope (niches aren't Telegram-triggered). listNichesWithConnections left-joins default provider name and groups all platform_connections rows per niche in application code (0-3 rows each). src/app/niches/page.tsx: list table (name, default provider or 'none', target posts/day per platform, a colored T/I/Y status badge per platform defaulting to 'disconnected' when no connection row exists) plus an inline create form. src/app/niches/[id]/page.tsx: edit page, 404s via notFound() on an unknown id, prefilled form, read-only connection-status chips (the toggle-to-connect UI is US-010's job, not this story's). src/app/niches/NicheFormFields.tsx: shared (non-\"use server\") form component reused by both create and edit, taking the bound server action as a prop. src/app/niches/actions.ts: createNicheAction/updateNicheAction/deleteNicheAction, each a \"use server\" function parsing FormData via zod (z.coerce.number() for the numeric fields), calling into src/actions/niches.ts, then revalidatePath + redirect(\"/niches\"). Default-provider <select> restricted to enabled video_providers only, matching the /settings/providers convention. 8 new unit tests (src/actions/niches.test.ts) against the real pglite-backed test db. No dev-browser skill available, so verified manually end-to-end: temp local Postgres 17 -> drizzle-kit migrate -> seed providers -> next build/next start -> logged in via curl through the real password gate -> confirmed /niches renders the empty state, then (after seeding two niches directly via psql, one with a default provider + tiktok:active/instagram:pending_review connections, one with neither) confirmed the list's provider name, target-posts-per-day text, and per-platform status badges (including the disconnected default) all render correctly -> confirmed /niches/[id] prefills every field correctly (including the pre-selected provider option) and shows the same connection-status chips as readable labels -> confirmed /niches/<unknown-id> returns a real 404 -> tore the temp instance down. Did not exercise the Server Action POST wire protocol itself via curl (Next.js's server-action multipart/$ACTION_ID encoding isn't practically replicable by hand); that logic is thin glue over src/actions/niches.ts, which is fully unit tested. tsc --noEmit clean, eslint . clean, vitest run 74/74 passing."
     },
     {
       "id": "US-010",
@@ -148,8 +148,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 10,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "src/actions/platform-connections.ts: setConnectionStatus (upsert via onConflictDoUpdate targeting the niche_id+platform unique constraint) and getConnectionsForNiche. No channel column, same rationale as niches.ts (never Telegram-triggered). src/app/niches/actions.ts: updateConnectionStatusAction parses nicheId/platform/status via zod then calls setConnectionStatus, revalidating both /niches and /niches/[id]. src/app/niches/[id]/page.tsx: Platform connections section rendered as a state machine of contextual buttons per platform -- disconnected shows \"Mark as submitted for review\"; pending_review shows \"Mark as active\" (primary) + \"Reset\"; active shows \"Disconnect\" -- each a tiny form posting straight to updateConnectionStatusAction via hidden nicheId/platform/status fields. Status pills use per-platform pending copy (PENDING_LABELS) matching the PRD wording: tiktok=\"Waiting on TikTok audit\", instagram=\"Waiting on Meta app review\", youtube=\"Waiting on Google OAuth verification\"; disconnected=\"Not connected\", active=\"Active\". Explicit copy that this is a manual flag, not a live OAuth check. 5 new unit tests (src/actions/platform-connections.test.ts) against the real pglite-backed test db: create-when-absent, upsert-not-duplicate (+ updatedAt bump), reset-to-disconnected, independent-per-platform tracking, empty-array-when-none. Manual verification went further than US-009: temp local Postgres 17 (TCP loopback from the start, avoiding the unix-socket drizzle-kit migrate bug found in US-009) -> migrate -> seed providers -> seeded one niche via psql with zero connection rows -> next build/next start -> logged in via curl through the real password gate -> confirmed the zero-rows case renders all three platforms as disconnected/\"Not connected\" -> then actually replicated Next.js's Server Action no-JS wire protocol by hand (multipart POST with the hidden $ACTION_ID_<hash> field plus nicheId/platform/status) to drive updateConnectionStatusAction for real over HTTP: disconnected->pending_review->active->disconnected full cycle for tiktok, each transition confirmed both via a direct psql SELECT against platform_connections and via re-fetching the page and checking the correct pill color/label and contextual button set rendered; also verified instagram's distinct pending copy (\"Waiting on Meta app review\"). Tore down the temp Postgres instance and Next.js server afterward. tsc --noEmit clean, eslint . clean, vitest run 79/79 passing."
     },
     {
       "id": "US-011",
@@ -164,8 +164,8 @@
         "Tests pass"
       ],
       "priority": 11,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "src/lib/claude-client.ts: ClaudeClient interface (complete({system, prompt, maxTokens}) -> {status, text}), mirroring the fetch-based video-provider adapters' {status} shape so it composes with callWithRetry (US-004). createAnthropicClaudeClient() wraps @anthropic-ai/sdk (new dependency), catching Anthropic.APIError and returning its status instead of throwing, with the SDK's own maxRetries set to 0 so callWithRetry is the single source of retry/backoff/quota/error-log behavior. Model defaults to claude-sonnet-5. src/actions/generate-ideas.ts: generateIdeas(db, nicheId, claudeClient, count=5, options) -- loads the niche (throws ActionNotFoundError via getNiche), builds a system+user prompt asking for a strict JSON array of {title, concept, prompt, caption, hashtags}, calls the client via callWithRetry (provider='anthropic'), zod-validates the parsed JSON array (min 1 item), then inserts one ideas row per generated idea inheriting the niche's default_provider_id and default_generation_specs, with estimated_cost computed via the US-008 cost estimator (null when the niche has no default provider) and status='pending_review'. src/app/niches/actions.ts: generateIdeasAction(nicheId) server action wires createAnthropicClaudeClient (ANTHROPIC_API_KEY from env) + createDrizzleErrorLogStore into generateIdeas, revalidating the niche edit page. src/app/niches/[id]/page.tsx: new 'Ideas' section with a 'Generate 5 ideas' button and a read-only list of pending-review idea titles + estimated cost (an empty-state message when there are none); full approve/edit/reject review UI is explicitly out of scope here -- that's US-012. 6 new unit tests (src/actions/generate-ideas.test.ts) mocking ClaudeClient directly (same style as the higgsfield.test.ts fetchImpl mock): unknown niche throws ActionNotFoundError, happy path asserts every field including inherited provider/specs and computed estimated_cost is stored correctly, no-default-provider niches get null cost, invalid JSON throws, schema-mismatched JSON throws, and a persistent 5xx from Claude throws after retries exhaust. Manual verification: temp Postgres 17 -> migrate -> seed providers -> seeded one niche (with a default provider) via psql -> next build/next start -> logged in via curl through the real password gate -> confirmed the niche edit page renders the Ideas section, the 'Generate 5 ideas' button as a real Server Action form, and the empty-state message with zero idea rows -> inserted one pending_review idea row via psql (simulating generateIdeas' own insert shape) -> confirmed it renders in the list with its estimated cost. Did NOT invoke the action for real against the live Anthropic API (an ANTHROPIC_API_KEY happens to be present in this shell's env, but spending it on a real billing call here wasn't clearly authorized for this purpose) -- consistent with treating external paid API credentials (Higgsfield, TikTok, Meta) as the operator's own responsibility in prior stories. The actual Claude integration logic is fully covered by the mocked-client unit tests above. Tore down the temp Postgres instance and Next.js server afterward. tsc --noEmit clean, eslint . clean, vitest run 85/85 passing."
     },
     {
       "id": "US-012",
@@ -179,8 +179,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 12,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "New route src/app/niches/[id]/ideas/page.tsx: the per-niche idea review queue, listing every pending_review idea for that niche (newest first). src/app/niches/[id]/ideas/IdeaReviewCard.tsx (client component): one card per idea with inline-editable prompt/caption textareas, a provider select + resolution/duration/aspect-ratio inputs, and a live cost estimate computed client-side via the same estimateCost() (US-008) used server-side, recomputed on every field change via useMemo -- plus Approve/Reject buttons. src/app/niches/[id]/ideas/actions.ts: three 'use server' actions, all composing directly from the existing US-005 shared action layer (src/actions/ideas.ts) so web and the future Telegram flow (US-014) share the same underlying functions -- updateIdeaAction (calls editIdeaPrompt + editIdeaCaption + setIdeaProvider (if a provider was picked) + setIdeaGenerationSpecs in one submit), approveIdeaAction (approveIdea), and rejectIdeaAction (rejectIdea). Extended src/actions/ideas.ts itself: setIdeaProvider now recomputes estimated_cost against the idea's current generation_specs, and a new setIdeaGenerationSpecs() sets generation_specs and recomputes estimated_cost against the idea's current provider (both null when either side is missing/ incomplete, via a shared isValidGenerationSpecs guard) -- keeping the persisted estimated_cost column always in sync with whatever the operator last confirmed, the same way US-011's generateIdeas() computes it up front. Added an optional aspectRatio field to lib/video-providers/types.ts's GenerationSpecs (previously only durationSeconds/resolution/fps/credits) so the review queue's specs picker (which needs aspectRatio, matching the niche-level NicheGenerationSpecs shape) type-checks cleanly against the shared cost estimator. Niche edit page (src/app/niches/[id]/page.tsx): the old static 'no controls' pending-ideas list was replaced with a 'Review N pending ideas ->' link to the new /niches/[id]/ideas route once there's anything to review. 10 new/changed unit tests in src/actions/ideas.test.ts covering setIdeaProvider's and setIdeaGenerationSpecs' cost-recompute behavior in both directions (cost computed once both sides are present; null when either is missing). Manual verification: temp Postgres 17 (us012db, port 5547, TCP loopback) -> migrate -> seed providers (Higgsfield per_second $0.20, Nano Banana per_generation $1.50, Omni per_credit $0.05) -> seeded one niche + two pending ideas via psql (one with a provider/specs already set, one without) -> next build/next start -> curl login -> confirmed the niche page's new 'Review 2 pending ideas ->' link and the review page's two cards (including the SSR-computed live estimate: '$1.6000' for the idea with Higgsfield+8s already set, '\u2014 (pick a provider)' for the one with neither) -> replicated Next.js's Server Action no-JS multipart wire protocol via curl (as established in US-010) to drive updateIdeaAction for real -- edited prompt, caption, switched provider to Nano Banana, and changed duration to 10s in one submit -- confirmed via psql that every field persisted and estimated_cost was correctly recomputed to '1.5000' (per_generation pricing, duration-independent) -- then drove approveIdeaAction and rejectIdeaAction for real over HTTP on the two ideas respectively, confirmed via psql (status/approved_via/updated_via columns) and by re-fetching both the review page and the niche edit page to confirm both now render their correct empty-review-queue states. Tore down the temp Postgres instance and Next.js server afterward. tsc --noEmit clean, eslint . clean, vitest run 90/90 passing."
     },
     {
       "id": "US-013",
@@ -195,8 +195,8 @@
         "Tests pass"
       ],
       "priority": 13,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "src/app/api/telegram/webhook/route.ts: verifies Telegram's X-Telegram-Bot-Api-Secret-Token header against TELEGRAM_WEBHOOK_SECRET, then delegates to a new src/lib/telegram-webhook.ts::handleTelegramWebhook, which is deliberately synchronous -- it schedules the real work via an injected scheduleAsync (the route passes Next 15's after()) and returns a {status, body} result immediately, never awaiting the deferred work. This is the fast-ack pattern: the route's NextResponse.json(...) goes out before any Claude/provider/DB call behind the update has even started, and after() keeps that work alive past the response without blocking it. Confirmed via direct experiment that Next's after() throws when called outside a real request scope ('after was called outside a request scope'), which is why handleTelegramWebhook takes scheduleAsync as a parameter rather than importing after() directly -- this is what makes the fast-ack property unit-testable at all. src/lib/telegram-webhook.ts::processTelegramUpdate is the deferred work itself: looks up the chat's bot_sessions row (src/actions/bot-sessions.ts: getPendingSession/setPendingSession/clearPendingSession, upserting on the table's unique chat_id), and if pendingEntityType is 'idea' with a pendingField of 'prompt' or 'caption', applies the incoming plain-text message via the existing shared action layer (editIdeaPrompt/editIdeaCaption from US-005's src/actions/ideas.ts, channel='telegram'), clears the session, and confirms via a new src/lib/telegram-client.ts (sendMessage/editMessageText against the real Bot API, wrapped in callWithRetry the same way the video-provider adapters are). The inline-keyboard buttons that create these pending sessions in the first place (Edit Prompt / Edit Caption / Change Provider) are US-014's job; this story only needed the generic session-routing engine to exist and be provably correct, which is what the multi-chat routing test below checks. bot_sessions table already existed in the schema from the Phase 0 groundwork -- no migration needed for this story. New tests: src/lib/telegram-webhook.test.ts (8 tests: auth rejection with no work scheduled, the fast-ack timing test using a controllable never-resolving promise for the 'slow operation' to prove the handler's result is produced before that promise is even invoked, and 5 processTelegramUpdate tests including one that seeds two different chats with two different pending sessions and confirms only the replying chat's idea/session is touched), src/lib/telegram-client.test.ts (4 tests for sendMessage/editMessageText request shape, Telegram-level ok:false handling, and retry-exhaustion), src/actions/bot-sessions.test.ts (5 tests for get/set/clear and upsert-not-duplicate behavior). Added seedBotSession to src/actions/test-helpers.ts. Per updated verification policy (agreed with the operator this session): tsc --noEmit clean, eslint . clean, vitest run 108/108 passing -- no manual Postgres/build/curl E2E for this story; that full cycle is now reserved for phase boundaries rather than every story, to keep pace reasonable."
     },
     {
       "id": "US-014",
@@ -212,8 +212,8 @@
         "Tests pass"
       ],
       "priority": 14,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented: extended TelegramClient (sendMessage/editMessageText accept an optional inline replyMarkup; added answerCallbackQuery). New telegram-idea-card.ts renders an idea's card text and its Approve/Reject/Edit Prompt/Edit Caption/Change Provider keyboard (callback_data format 'idea:<action>:<id>'), plus notifyPendingIdeas(db, ideas) which pushes each freshly-generated idea to TELEGRAM_OPERATOR_CHAT_ID (no-op if Telegram env vars aren't set; per-idea failures are swallowed so a Telegram outage never breaks idea generation) -- wired into niches/actions.ts's generateIdeasAction right after generateIdeas. telegram-webhook.ts's processTelegramUpdate now branches on message vs callback_query: Approve/Reject call the exact same approveIdea/rejectIdea from US-005's shared action layer and then editMessageText the original card to show the final state with the keyboard removed (errors, e.g. double-tapping Approve on an already-decided idea, are caught and reported back via sendMessage rather than crashing the deferred after() work). Edit Prompt/Edit Caption set a bot_sessions pending row (pendingAction='awaiting_text') that US-013's plain-text handler already knew how to resolve. Change Provider is a two-step flow: since a provider id + an idea id together don't fit Telegram's 64-byte callback_data limit, tapping it sets a pending session (pendingAction='choosing_provider', entityId=ideaId) and sends a keyboard of enabled providers labeled with their live price (via estimateCost); picking one only needs to carry the provider id in callback_data, since the idea id is resolved from that same pending session, mirroring the existing session-based design from US-013 but driven by a button tap instead of a text reply. Per the operator-agreed lightened verification policy: tsc --noEmit clean, eslint . clean, vitest run 124/124 passing (16 new tests) -- no manual Postgres/build/curl E2E for this story; a full E2E pass is planned once US-015 (video approval via Telegram) also lands, closing out Phase 4."
     },
     {
       "id": "US-015",
@@ -227,8 +227,8 @@
         "Tests pass"
       ],
       "priority": 15,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Video cards (sendVideo/sendPhoto/sendMessage size-based branch in telegram-video-card.ts) with Approve/Reject/Edit Caption buttons, dispatched in telegram-webhook.ts's processCallbackQuery via a new video: namespace that reuses approveVideo/rejectVideo/editVideoCaption from the same US-005 action layer the web review queue uses. Keyboard updates use editMessageReplyMarkup (not editMessageText, which fails on photo/video messages). notifyPendingVideo exists but has no call site yet -- nothing produces videos rows until US-016/US-017 land. Verified via tsc + eslint + vitest only (136/136 passing), per the lightened per-story policy; full E2E deferred to the Phase 4 boundary now that US-013/014/015 are all done."
     },
     {
       "id": "US-016",
@@ -238,11 +238,12 @@
         "Approving an idea creates a generation_jobs row and submits it via the adapter registry (US-007) using the idea's attached provider/specs",
         "Cron-driven poller (/api/cron/poll-generation) updates job status with capped retries on transient failure",
         "Dashboard shows live status per job with last error if failed",
+        "A regenerateVideo action re-submits a new generation job for an existing idea using an edited or optimizer-rewritten prompt, recorded with the originating channel",
         "Typecheck passes",
         "Verify in browser using dev-browser skill"
       ],
       "priority": 16,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -258,8 +259,8 @@
         "Tests pass"
       ],
       "priority": 17,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "storeCompletedVideo (src/actions/store-video.ts) downloads the provider result video (and thumbnail, when the provider reports one) via the shared callWithRetry seam, re-uploads both into Vercel Blob, and inserts the videos row; idempotent on generation_job_id so a duplicate poll tick returns the existing row instead of re-uploading. pollGenerationJob (US-016) now calls it automatically the moment a job goes complete -- a storage failure keeps status \"complete\" (generation itself succeeded) and records the failure on last_error instead, surfaced on the niche dashboard's Generation jobs panel regardless of status so it is never hidden behind a green badge. Schema: generation_jobs.thumbnail_source_url added (drizzle/0002_glamorous_psynapse.sql). Unit tests: store-video.test.ts (7 cases -- happy path, thumbnail, idempotency, not-found, wrong-status, download failure) plus generation-jobs.test.ts extended with storage call-through and storage-failure cases. tsc/eslint/vitest (234/234) and next build all green."
     },
     {
       "id": "US-018",
@@ -268,12 +269,13 @@
       "acceptanceCriteria": [
         "Review page with inline video preview and per-platform caption/hashtag editor",
         "Approve sets status ready_to_schedule; reject sets status rejected (kept for history)",
+        "Video review card (web) and Telegram video card both expose Regenerate (video:regenerate:<id>) with edit-prompt and optimize-prompt options",
         "Typecheck passes",
         "Verify in browser using dev-browser skill"
       ],
       "priority": 18,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Video review queue (web + Telegram). Web: /niches/[id]/videos lists pending_review videos joined with their idea title/prompt, EmptyState fallback when clear. VideoReviewCard: <video> preview with poster, caption/hashtags edit form (new editVideoHashtags action alongside the existing editVideoCaption), Approve/Reject, and a collapsible Regenerate panel with two sub-flows -- edit the prompt by hand, or have Claude optimize it (reusing optimizeIdeaPrompt) -- both then calling the existing regenerateVideo action to re-queue generation on the same idea. The niche page gained a \"Videos\" panel (pending-review count + link) mirroring the Ideas panel. Also fixed a real gap found while building this: the niche page's Generation jobs panel was only showing lastError when status was \"failed\", not for a completed job whose storage step failed (US-017's scenario) -- the condition now checks lastError alone regardless of status. Telegram: video card gained a \"Regenerate\" button opening an edit/optimize picker; the webhook keys the resulting pending session on the idea id (not the video id) since that's what editIdeaPrompt/optimizeIdeaPrompt/regenerateVideo operate on, then confirms via sendMessage once queued (errors from an ungeneratable idea are caught and reported instead of crashing). Tests: 2 new videos.test.ts cases (editVideoHashtags), 5 new telegram-webhook.test.ts cases (picker + both round trips + error path), 2 new telegram-video-card.test.ts cases (keyboard buttons). tsc/eslint/vitest (241/241) and next build all green."
     },
     {
       "id": "US-019",
@@ -286,8 +288,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 19,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Scheduling list UI (web only -- no Telegram surface asked for in this story). src/actions/scheduling.ts: schedulePost(db, videoId, platforms[], scheduledAt, channel) requires the video be ready_to_schedule, then for every requested platform counts existing non-failed scheduled_posts for that niche+platform on the same UTC calendar day and compares against niches.targetPostsPerDay[platform] (already-existing per-niche per-platform config from US-009) -- if any platform is at/over its cap the whole batch is rejected with SchedulingCapExceededError before any row is inserted (no partial scheduling). On success inserts one scheduled_posts row per platform (default status 'scheduled'). Also added listScheduledPostsForVideo. Web: new /niches/[id]/schedule route lists ready_to_schedule videos with any slots already booked (platform + time + status badge) and a form (platform checkboxes + one datetime-local input) to book more, via a new schedule/actions.ts + ScheduleCard.tsx mirroring the videos-queue pattern. Niche page gained a 'Schedule' panel (ready-count + link). Video status stays ready_to_schedule after scheduling (no dedicated 'scheduled' video status exists), so a video can be booked onto additional platforms/times later -- the card just accumulates more scheduled_posts rows. Publish-time gating on platform connection status is intentionally NOT enforced here (that is US-020). Tests: 11 new scheduling.test.ts cases covering the happy path (single + multi-platform), not-found/invalid-state errors, empty-platforms guard, cap exceeded (single platform, zero-cap platform, and a full platform blocking an entire multi-platform batch), day-boundary correctness, failed posts not counting against the cap, and ordering. tsc/eslint/vitest (246/246, 25 files) and next build all green -- new route /niches/[id]/schedule compiles at 2.17 kB / 108 kB First Load JS."
     },
     {
       "id": "US-020",
@@ -302,8 +304,8 @@
         "Tests pass"
       ],
       "priority": 20,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "src/actions/publish.ts's publishScheduledPost(db, scheduledPostId, adapters, channel) implements the gating: loads the scheduled post and its niche+platform's platform_connections row, and if that connection is missing or not status='active' it marks the post awaiting_platform_approval and returns without ever calling an adapter -- covered explicitly by two tests (disconnected, pending_review). When active it decrypts the connection's tokens (src/lib/crypto.ts) and calls the matching US-021/022/023 adapter's publish(), covered by a success test (marks published, records a publish_jobs success row) and two failure tests (a generic error leaves the post status='scheduled' for a future retry rather than marking it permanently failed, recording one failed publish_jobs row; a PlatformNotApprovedError from the adapter parks it as awaiting_platform_approval instead of scheduling a pointless retry). 7 tests total, all passing. Deliberately out of scope, left for US-024: selecting which due posts to attempt, concurrency-safe row locking across overlapping cron runs, and the retry-count/backoff logic that decides when a post should finally be marked permanently 'failed' -- this function only performs one attempt and returns a typed outcome the future worker will act on."
     },
     {
       "id": "US-021",
@@ -317,8 +319,8 @@
         "Tests pass"
       ],
       "priority": 21,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "OAuth connect flow completed: src/lib/platforms/tiktok-oauth.ts (pure, fetch-injectable buildTikTokAuthorizeUrl + exchangeTikTokCode returning ConnectionTokens) plus thin /api/auth/tiktok/authorize and /api/auth/tiktok/callback route handlers. Authorize takes ?nicheId=, mints state via createOAuthState (double-submit nonce cookie, 10 min, httpOnly), and derives redirect_uri from request.url so every host works without a new env var -- each host must be registered in the platform's developer console. Callback verifies state first (OAuthStateError -> JSON 400, never a redirect, since an unverified nicheId is untrusted), exchanges the code, persists via saveConnectionTokens (encrypts both tokens, marks the connection active), clears the nonce cookie, and redirects to /niches/<id>?connected=tiktok; a declined consent or any exchange/save failure redirects to ?connection_error=tiktok. Token endpoint POST /v2/oauth/token/ form-urlencoded with client_key/client_secret (env TIKTOK_CLIENT_KEY/TIKTOK_CLIENT_SECRET), grant_type=authorization_code; open_id becomes externalAccountId. 10 unit tests. ASSUMPTIONS to verify against live traffic: scopes user.info.basic,video.publish; the authorize URL uses client_key (not client_id); the OAuth endpoint returns a flat string `error` + error_description on failure (parser also tolerates the nested Content-Posting shape and an error envelope carried on an HTTP 200); a missing expires_in yields an already-expired expiresAt, which differs from TikTokAdapter.refreshCredentials mapping it to null -- reconcile if TikTok ever omits it."
     },
     {
       "id": "US-022",
@@ -333,8 +335,8 @@
         "Tests pass"
       ],
       "priority": 22,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "OAuth connect flow completed: src/lib/platforms/instagram-oauth.ts (pure, fetch-injectable buildInstagramAuthorizeUrl + exchangeInstagramCode returning ConnectionTokens) plus thin /api/auth/instagram/authorize and /api/auth/instagram/callback route handlers. Authorize takes ?nicheId=, mints state via createOAuthState (double-submit nonce cookie, 10 min, httpOnly), and derives redirect_uri from request.url so every host works without a new env var -- each host must be registered in the platform's developer console. Callback verifies state first (OAuthStateError -> JSON 400, never a redirect, since an unverified nicheId is untrusted), exchanges the code, persists via saveConnectionTokens (encrypts both tokens, marks the connection active), clears the nonce cookie, and redirects to /niches/<id>?connected=instagram; a declined consent or any exchange/save failure redirects to ?connection_error=instagram. Four sequential Graph GETs: code -> short-lived user token, fb_exchange_token -> long-lived (~60d) token, /me/accounts -> Page, /{page-id}?fields=instagram_business_account -> the IG user id stored as externalAccountId. Meta issues no refresh token, so refreshToken is always null (matching InstagramAdapter having no refreshCredentials). 12 unit tests. KNOWN FOLLOW-UP: nothing re-exchanges the long-lived token before its ~60-day expiry -- reconnecting is currently the only remedy. ASSUMPTIONS: dialog host is www.facebook.com/v21.0/dialog/oauth while the exchanges use graph.facebook.com/v21.0; scopes instagram_basic,instagram_content_publish,pages_show_list,business_management (all need Meta app review); the first Page in /me/accounts wins (one niche == one Page, no picker UI); a missing expires_in defaults to 5,184,000s."
     },
     {
       "id": "US-023",
@@ -349,8 +351,8 @@
         "Tests pass"
       ],
       "priority": 23,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "OAuth connect flow completed: src/lib/platforms/youtube-oauth.ts (pure, fetch-injectable buildYouTubeAuthorizeUrl + exchangeYouTubeCode returning ConnectionTokens) plus thin /api/auth/youtube/authorize and /api/auth/youtube/callback route handlers. Authorize takes ?nicheId=, mints state via createOAuthState (double-submit nonce cookie, 10 min, httpOnly), and derives redirect_uri from request.url so every host works without a new env var -- each host must be registered in the platform's developer console. Callback verifies state first (OAuthStateError -> JSON 400, never a redirect, since an unverified nicheId is untrusted), exchanges the code, persists via saveConnectionTokens (encrypts both tokens, marks the connection active), clears the nonce cookie, and redirects to /niches/<id>?connected=youtube; a declined consent or any exchange/save failure redirects to ?connection_error=youtube. Token endpoint POST https://oauth2.googleapis.com/token form-urlencoded (env GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET), then GET youtube/v3/channels?part=id&mine=true with a bearer token to resolve the channel id stored as externalAccountId. Authorize sets access_type=offline and prompt=consent so a refresh_token is actually issued even on a repeat connect; a missing refresh_token is stored as null rather than failing the connect. 12 unit tests. ASSUMPTIONS: scopes youtube.upload + youtube.readonly (both sensitive/restricted, so the consent screen needs Google verification before non-test users can connect; youtube.readonly exists only to read the channel id); channels.list answers {items:[{id}]} and an account with no channel returns empty items rather than an HTTP error; the first channel wins when a Google account has several."
     },
     {
       "id": "US-024",
@@ -365,8 +367,8 @@
         "Tests pass"
       ],
       "priority": 24,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "claimDuePosts (src/actions/publish-worker.ts) atomically selects due scheduled_posts (status=scheduled, scheduled_at<=now) via Drizzle's native .for('update', {skipLocked:true}) inside a db.transaction(), flipping claimed rows to status=publishing before commit -- real Postgres never double-claims a row, since a second run's SKIP LOCKED select excludes anything still locked by an in-flight first transaction, and once that transaction commits the row is no longer status=scheduled either. runPublishWorkerTick claims a batch, then routes each post through publishScheduledPost (US-020) against a real adapter map (src/lib/platforms/registry.ts, wiring TikTok/Instagram/YouTube with env-var OAuth app creds and a Drizzle-backed quota store for YouTube). This is what finally closes the retry loop US-020 deliberately left open: on retry_scheduled it counts the post's accumulated publish_jobs rows and marks it permanently failed once MAX_PUBLISH_ATTEMPTS (5) is reached, instead of leaving it eligible forever. New /api/cron/publish route, CRON_SECRET-gated like poll-generation. Honesty note verified empirically (throwaway probe script, since deleted): @electric-sql/pglite serializes every db.transaction() call onto one logical connection, so no pglite-backed test can exercise genuinely overlapping FOR UPDATE SKIP LOCKED contention -- the 'two overlapping runs' test instead proves the compare-and-set guard (a claimed post is no longer status=scheduled for a second call to find), which is the property that actually matters for correctness; this limitation is documented in claimDuePosts's doc comment and in the test itself rather than overclaimed. 9 new tests (5 claimDuePosts, 4 runPublishWorkerTick). Gate: tsc --noEmit clean, eslint . clean, vitest run 262/262 passing (27 files), next build green with new /api/cron/publish route."
     },
     {
       "id": "US-025",
@@ -379,8 +381,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 25,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "src/app/(dashboard)/history/page.tsx: scheduledPosts joined with videos/niches, filterable by niche/platform/status via GET query params. Latest publish_jobs row per post looked up for platformPostId / lastError. Failed posts show the captured error plus a Retry now button wired to retryPublishAction (history/actions.ts), which calls publishScheduledPost via buildPlatformAdapters -- the exact same action layer the cron publish worker uses."
     },
     {
       "id": "US-026",
@@ -393,8 +395,25 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 26,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "src/app/(dashboard)/usage/page.tsx: api_quota_usage rows for today shown against KNOWN_DAILY_CAPS (currently just YouTube's 10,000-unit publish quota -- other providers show usage with no cap configured rather than a guessed number). Spend section sums ideas.estimated_cost and generation_jobs.actual_cost, broken down by video provider and by niche, plus grand totals as Stat cards."
+    },
+    {
+      "id": "US-027",
+      "title": "Reference-video description guidance for niches",
+      "description": "As the operator, I want to describe a reference video (in my own words, or a description written by another AI after watching it) when creating or editing a niche, so idea generation produces prompts styled like that reference rather than generic guidance.",
+      "acceptanceCriteria": [
+        "Niche create/edit form has a 'Reference style guidance' textarea, separate from the existing theme guidance field, with helper copy suggesting the operator describe a specific reference video's look/mood/subject (their own words or pasted from another AI)",
+        "New nullable niches.reference_guidance column (text), migration generated and applied",
+        "generateIdeas includes reference_guidance in the prompt sent to Claude when present, clearly distinguished from theme_guidance in the prompt structure",
+        "Field is optional -- niches without it behave exactly as today",
+        "Typecheck passes",
+        "Tests pass",
+        "Verify in browser using dev-browser skill"
+      ],
+      "priority": 27,
+      "passes": true,
+      "notes": "Added niches.reference_guidance (nullable text, optional in NicheInput). Niche form gained a Reference style guidance textarea between Theme guidance and platform caps. generateIdeas buildPrompt appends a distinct labelled Reference video style guidance section when present; byte-identical prompt (regression-pinned) when absent. 5 new tests (niches.test.ts x3, generate-ideas.test.ts x2), all passing."
     }
   ]
 }

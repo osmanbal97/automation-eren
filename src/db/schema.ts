@@ -77,6 +77,8 @@ export const niches = pgTable("niches", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   themeGuidance: text("theme_guidance").notNull(),
+  /** Operator's free-text description of a reference video whose style ideas should emulate (US-027). Optional. */
+  referenceGuidance: text("reference_guidance"),
   targetPostsPerDay: jsonb("target_posts_per_day").notNull().default({}),
   defaultProviderId: uuid("default_provider_id").references(() => videoProviders.id),
   defaultGenerationSpecs: jsonb("default_generation_specs").notNull().default({}),
@@ -136,6 +138,8 @@ export const generationJobs = pgTable("generation_jobs", {
   attemptCount: integer("attempt_count").notNull().default(0),
   lastError: text("last_error"),
   resultVideoUrl: text("result_video_url"),
+  /** Provider-hosted thumbnail URL, when the provider's getResult() reports one (US-017). */
+  thumbnailSourceUrl: text("thumbnail_source_url"),
   actualCost: numeric("actual_cost", { precision: 10, scale: 4 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -216,6 +220,20 @@ export const errorLogs = pgTable("error_logs", {
   errorMessage: text("error_message").notNull(),
   attemptCount: integer("attempt_count").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** App-level OAuth client credentials for TikTok/Instagram(Meta)/YouTube(Google), one row
+ * per platform -- a single registered developer app is reused to connect every niche's
+ * account on that platform, so this is keyed by platform alone, not per-niche. Configured
+ * through the Socials settings UI (US-021/022/023's authorize/callback routes fall back to
+ * process.env when a platform has no row here, so nothing breaks before keys are set). */
+export const platformApps = pgTable("platform_apps", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  platform: platformEnum("platform").notNull().unique(),
+  clientIdEncrypted: text("client_id_encrypted").notNull(),
+  clientSecretEncrypted: text("client_secret_encrypted").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const botSessions = pgTable("bot_sessions", {

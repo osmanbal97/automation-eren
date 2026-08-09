@@ -1,0 +1,1 @@
+ALTER TABLE "generation_jobs" ADD COLUMN "thumbnail_source_url" text;

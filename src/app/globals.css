@@ -1,9 +1,149 @@
 @import "tailwindcss";
 
+/* Design tokens. Dark, cinematic base with a violet -> fuchsia -> cyan accent ramp;
+ * surfaces are translucent so the fixed aurora wash reads through the whole app. */
+@theme {
+  --color-ink-950: #08070c;
+  --color-ink-900: #0b0a11;
+  --color-ink-850: #0f0e15;
+  --color-ink-800: #16141f;
+  --color-ink-700: #1f1c2b;
+
+  --color-line: rgba(255, 255, 255, 0.08);
+  --color-line-strong: rgba(255, 255, 255, 0.16);
+
+  --color-fg: #f5f4f8;
+  --color-fg-muted: #9b99a8;
+  --color-fg-subtle: #6b6879;
+
+  --color-accent-violet: #8b5cf6;
+  --color-accent-fuchsia: #d946ef;
+  --color-accent-cyan: #22d3ee;
+
+  --color-success: #34d399;
+  --color-success-dim: rgba(52, 211, 153, 0.12);
+  --color-warn: #fbbf24;
+  --color-warn-dim: rgba(251, 191, 36, 0.12);
+  --color-danger: #fb7185;
+  --color-danger-dim: rgba(251, 113, 133, 0.12);
+
+  --font-sans: ui-sans-serif, -apple-system, "SF Pro Text", "Segoe UI", Inter, system-ui,
+    sans-serif;
+
+  --radius-panel: 1rem;
+}
+
 :root {
   color-scheme: dark;
+  --gradient-accent: linear-gradient(
+    100deg,
+    var(--color-accent-violet) 0%,
+    var(--color-accent-fuchsia) 52%,
+    var(--color-accent-cyan) 100%
+  );
+}
+
+html {
+  font-family: var(--font-sans);
 }
 
 body {
-  background-color: #0a0a0a;
+  background-color: var(--color-ink-950);
+  color: var(--color-fg);
+  letter-spacing: -0.011em;
+}
+
+::selection {
+  background: rgba(139, 92, 246, 0.35);
+}
+
+/* Fixed radial wash sitting behind everything — the single biggest contributor to the
+ * "not a default Tailwind page" feel. Pointer-events off so it never eats clicks. */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(60rem 40rem at 12% -10%, rgba(139, 92, 246, 0.22), transparent 60%),
+    radial-gradient(50rem 34rem at 92% 4%, rgba(217, 70, 239, 0.16), transparent 62%),
+    radial-gradient(46rem 34rem at 60% 108%, rgba(34, 211, 238, 0.12), transparent 60%);
+}
+
+/* Very fine noise so large dark areas don't band on OLED/wide-gamut displays. */
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+@utility glass {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.045) 0%,
+    rgba(255, 255, 255, 0.015) 100%
+  );
+  border: 1px solid var(--color-line);
+  backdrop-filter: blur(14px);
+}
+
+@utility glow {
+  box-shadow:
+    0 0 0 1px rgba(139, 92, 246, 0.28),
+    0 12px 36px -12px rgba(139, 92, 246, 0.55);
+}
+
+@utility text-gradient {
+  background: var(--gradient-accent);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+@utility bg-accent-gradient {
+  background: var(--gradient-accent);
+}
+
+/* Hairline gradient rule used to separate the top bar and section headers. */
+@utility rule-accent {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(139, 92, 246, 0.5),
+    rgba(34, 211, 238, 0.35),
+    transparent
+  );
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@utility shimmering {
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@utility animate-rise {
+  animation: rise 0.35s ease-out both;
 }
